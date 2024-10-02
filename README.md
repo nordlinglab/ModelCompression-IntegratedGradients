@@ -10,6 +10,7 @@ This repository contains the implementation of our novel approach to model compr
 
 ### Repository Structure
 
+```
 .
 ├── Jupyter_notebooks # Notebooks for analysis and visualization
 │ ├── Compression_vs_accuracy\*.ipynb # Notebooks for compression vs. accuracy studies
@@ -28,3 +29,4 @@ This repository contains the implementation of our novel approach to model compr
 ├── README.md # This README file
 └── saved_models # Trained model weights
 ├── \*.pt # PyTorch model weights
+```
