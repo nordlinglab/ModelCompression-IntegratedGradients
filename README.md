@@ -27,12 +27,12 @@ This repository contains the implementation of our novel approach to model compr
 │ ├── montecarlo.py # Script to perform a montecarlo simulation
 │ ├── param_search.py # Script to find the best parameters for KD
 │ ├── precompute_img.py # Script to precompute all the teacher's logits
-│ └── cifar10_models
+│ ├── cifar10_models
 │ │ ├── mobilenetv2.py # Script for the teacher model
-│ │ └── state_dicts
+│ │ ├── state_dicts
 │ │ │ └── mobilenet_v2.pt # weights for the teacher model
-└── saved_models # Trained model weights
+├── saved_models # Trained model weights
 │ └── \*.pt # PyTorch model weights
 ├── README.md # This README file
-├── LICENSE # License file
+└── LICENSE # License file
 ```
