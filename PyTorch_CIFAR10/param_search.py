@@ -3,28 +3,27 @@ import os
 import numpy as np  # type:ignore
 import pandas as pd  # type:ignore
 import torch  # type:ignore
+from cifar10_models.mobilenetv2 import mobilenet_v2
 from torch.utils.data import DataLoader  # type:ignore
 from torchvision import transforms  # type:ignore
 from torchvision.datasets import CIFAR10  # type:ignore
-
-from cifar10_models.mobilenetv2 import mobilenet_v2
 from UTILS_TORCH import CIFAR10_KD, SmallerMobileNet, train_eval_kd
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Currently using: '{device}'")
 
-os.makedirs(os.path.dirname("Histories/KD_param/"), exist_ok=True)
+os.makedirs(os.path.dirname("Histories/KD_param/Final"), exist_ok=True)
 
-SAVE = "Histories/KD_param/KD_param_search_3rd_3.csv"
+SAVE = "Histories/KD_param/Final/KD_param_search_final.csv"
 print("Saving results as: ", SAVE)
 
 # Hyperparameters
 NUM_EPOCHS = 100
 BATCH_SIZE = 64
 LEARN_RATE = 0.001
-ALPHAS = [0.9]
+ALPHAS = [0.05, 0.1, 0.25, 0.5, 0.75, 0.9]
 TEMPS = [1.5, 2, 2.5, 3, 4, 5, 6, 7, 8]
-NUM_WORKERS = 6
+NUM_WORKERS = 16
 
 precomputed_logits = np.load("./data/cifar10_logits.npy")
 print("Shape of teacher_logits:", precomputed_logits.shape)
@@ -110,7 +109,7 @@ for alpha in ALPHAS:
             TEMP=temp,
             ALPHA=alpha,
             device=device,
-            csv_path=f"Histories/KD_param/KD_{alpha}_{temp}_3rd.csv",
+            csv_path=f"Histories/KD_param/Final/KD_{alpha}_{temp}.csv",
         )
 
         results.append({"Alpha": alpha, "Temp": temp, "Test Accuracy": acc})
