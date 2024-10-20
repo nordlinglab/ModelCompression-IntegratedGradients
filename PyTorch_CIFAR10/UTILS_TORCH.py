@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd
 import torch  # type: ignore
+from sklearn.metrics import (balanced_accuracy_score, classification_report,
+                             cohen_kappa_score, confusion_matrix)
 from torch import nn  # type: ignore
 from torch.nn import functional as F  # type: ignore
 from torchvision import datasets, transforms
@@ -328,7 +330,7 @@ class CIFAR10WithIG(datasets.CIFAR10):
         super().__init__(root=root, train=train, transform=transform, download=True)
         self.igs = torch.tensor(igs, dtype=torch.float32).unsqueeze(
             1
-        )  # Add channel dimension
+      IG_  )  # Add channel dimension
         self.overlay_prob = overlay_prob
         self.return_ig = return_ig
         self.precomputed_logits = torch.tensor(precomputed_logits, dtype=torch.float32)
@@ -660,3 +662,94 @@ class CIFAR10_AT(datasets.CIFAR10):
         logits = self.precomputed_logits[idx]
         attn = self.precomputed_attn[idx]
         return image, label, logits, attn
+
+def evaluate_model_performance(model, dataloader, device, num_classes=10):
+    """
+    Evaluate the model performance on a dataset with unbalanced classes.
+
+    Parameters:
+    model: torch.nn.Module - The trained model to evaluate.
+    dataloader: torch.utils.data.DataLoader - The dataloader containing the test/validation data.
+    device: torch.device - The device to perform computation on (e.g., 'cuda' or 'cpu').
+    num_classes: int - The number of classes in the dataset (default is 10 for CIFAR-10).
+
+    Returns:
+    dict: A dictionary containing class-wise accuracy, F1-score, balanced accuracy, Cohen's Kappa, and confusion matrix.
+    """
+    model.eval()  # Set model to evaluation mode
+
+    # Track correct predictions and total samples per class
+    class_correct = [0 for _ in range(num_classes)]
+    class_total = [0 for _ in range(num_classes)]
+    
+    all_preds = []
+    all_labels = []
+
+    # No gradient calculation is needed during evaluation
+    with torch.no_grad():
+        for inputs, labels in dataloader:
+            inputs, labels = inputs.to(device), labels.to(device)
+
+            # Forward pass
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs, 1)
+
+            # Store all predictions and labels for later metrics
+            all_preds.extend(predicted.cpu().numpy())
+            all_labels.extend(labels.cpu().numpy())
+
+            # Calculate class-wise accuracy
+            for i in range(len(labels)):
+                label = labels[i].item()
+                class_total[label] += 1
+                if predicted[i].item() == label:
+                    class_correct[label] += 1
+
+    # Compute class accuracy
+    class_accuracy = {}
+    for i in range(num_classes):
+        if class_total[i] > 0:
+            class_accuracy[i] = 100 * class_correct[i] / class_total[i]
+        else:
+            class_accuracy[i] = 0  # Avoid division by zero
+
+    # Compute other metrics using sklearn
+    f1_report = classification_report(
+        all_labels, 
+        all_preds, 
+        digits=4, 
+        output_dict=True, 
+        zero_division=0  # Avoid warnings by handling divisions by zero
+    )
+    balanced_acc = balanced_accuracy_score(all_labels, all_preds)
+    kappa = cohen_kappa_score(all_labels, all_preds)
+    conf_matrix = confusion_matrix(all_labels, all_preds)
+
+    # Output all metrics in a structured dictionary
+    metrics = {
+        "class_accuracy": class_accuracy,
+        "f1_report": f1_report,
+        "balanced_accuracy": balanced_acc,
+        "cohen_kappa": kappa,
+        "confusion_matrix": conf_matrix
+    }
+
+    return metrics
+
+
+def evaluate_and_drop_samples(model, loader, device):
+    correct_indices = []
+    model.eval()  # Set the model to evaluation mode
+    
+    with torch.no_grad():  # No need to track gradients
+        for idx, (inputs, labels) in enumerate(loader):
+            inputs, labels = inputs.to(device), labels.to(device)
+            outputs = model(inputs)
+            _, predicted = torch.max(outputs.data, 1)
+            correct = (predicted == labels).nonzero().squeeze()  # Get correct indices in batch
+            
+            # Convert batch indices to dataset indices
+            dataset_indices = [i.item() for i in (correct + idx * loader.batch_size)]
+            correct_indices.extend(dataset_indices)
+    
+    return correct_indices
