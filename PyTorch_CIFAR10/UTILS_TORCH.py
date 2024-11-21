@@ -2,8 +2,12 @@ import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd
 import torch  # type: ignore
-from sklearn.metrics import (balanced_accuracy_score, classification_report,
-                             cohen_kappa_score, confusion_matrix)
+from sklearn.metrics import (
+    balanced_accuracy_score,
+    classification_report,
+    cohen_kappa_score,
+    confusion_matrix,
+)
 from torch import nn  # type: ignore
 from torch.nn import functional as F  # type: ignore
 from torchvision import datasets, transforms
@@ -50,12 +54,11 @@ def min_max_norm(x):
 def kd_loss(logits_student, logits_teacher, temperature):
     log_pred_student = F.log_softmax(logits_student / temperature, dim=1)
     pred_teacher = F.softmax(logits_teacher / temperature, dim=1)
-    loss_kd = nn.KLDivLoss(reduction="batchmean")(
-        log_pred_student,
-        pred_teacher,
-    ) * (temperature**2)
-    # loss_kd = F.kl_div(log_pred_student, pred_teacher, reduction="none").sum(1).mean()
-    # loss_kd *= temperature**2
+    loss_kd = (
+        F.kl_div(log_pred_student, pred_teacher, size_average=False)
+        * (temperature**2)
+        / logits_student.shape[0]
+    )
     return loss_kd
 
 
@@ -99,41 +102,12 @@ def random_ig_overlay(image, ig, prob=0.5):
 
 def attention_map(feature_maps, p=2):
     # Generate attention maps by summing absolute values across channels
-    attention = F.normalize(feature_maps.pow(p).mean(1), dim=[1, 2])
+    attention = F.normalize(feature_maps.pow(p).mean(1).view(feature_maps.size(0), -1))
     return attention
 
 
-def test_model_with_attention(model, loader, device):
-    """
-    Function to test the model on a given loader and device.
-    """
-    model.eval()
-    attention_maps = []
-    with torch.no_grad():
-        for images, _ in loader:
-            images = images.to(device)
-            _, attn_maps = model(
-                images
-            )  # Assuming your model returns outputs and attention maps
-            attention_maps.append(attn_maps.cpu())  # Store attention maps
-    return attention_maps
-
-
-def plot_attention_maps(attention_maps, title, save_as="attention_maps.pdf"):
-    """
-    Function that plots the attention_maps.
-    """
-    _, axs = plt.subplots(nrows=1, ncols=len(attention_maps), figsize=(15, 5))
-    for i, attn_map in enumerate(attention_maps):
-        if len(attention_maps) > 1:
-            ax = axs[i]
-        else:
-            ax = axs
-        img = ax.imshow(attn_map.squeeze(), cmap="hot", interpolation="nearest")
-        ax.axis("off")
-    plt.suptitle(title)
-    plt.colorbar(img, ax=axs, orientation="horizontal", fraction=0.025, pad=0.04)
-    plt.savefig(save_as)
+def attention_loss(ta, sa):
+    return (ta - sa).pow(2).mean()
 
 
 def compare_attn_maps(student_model, loader, device):
@@ -257,29 +231,6 @@ def denorm(x, maximum, minimum):
     return denorm_x
 
 
-def visualize_sample(dataset, index):
-    """Function to visualise the samples of a dataset"""
-    img, ig, augmented_img, _ = dataset[index]
-
-    # Unnormalize images for display
-    # img = unnormalize(img)
-    print(img.max(), img.min())
-    # augmented_img = unnormalize(augmented_img)
-    # print(augmented_img.min(), augmented_img.max())
-    _, axes = plt.subplots(1, 3, figsize=(12, 4))
-    titles = ["Original Image", "Integrated Gradient", "Augmented Image"]
-    items = [img, ig, augmented_img]
-
-    for ax, item, title in zip(axes, items, titles):
-        item = item.permute(1, 2, 0)  # Adjust dimensions for imshow
-        item = item.clip(0, 1)
-        ax.imshow(item.numpy())
-        ax.set_title(title)
-        ax.axis("off")
-
-    plt.show()
-
-
 # Classes
 class SmallerMobileNet(nn.Module):
     def __init__(self, original_model):
@@ -330,7 +281,7 @@ class CIFAR10WithIG(datasets.CIFAR10):
         super().__init__(root=root, train=train, transform=transform, download=True)
         self.igs = torch.tensor(igs, dtype=torch.float32).unsqueeze(
             1
-      IG_  )  # Add channel dimension
+        )  # Add channel dimension
         self.overlay_prob = overlay_prob
         self.return_ig = return_ig
         self.precomputed_logits = torch.tensor(precomputed_logits, dtype=torch.float32)
@@ -371,16 +322,14 @@ class ModifiedTeacher(nn.Module):
         self.front_layers = nn.Sequential(*original_model.features[:middle_index])
         self.middle_layer = original_model.features[middle_index]
         self.end_layers = nn.Sequential(*original_model.features[middle_index + 1 :])
-        self.pool = nn.AdaptiveAvgPool2d((1, 1))
-        self.classifier = original_model.classifier
+        self.classifier = nn.Sequential(*original_model.classifier)
 
     def forward(self, x):
         x = self.front_layers(x)
         middle_feature_maps = self.middle_layer(x)
         attention_maps = attention_map(middle_feature_maps)
         x = self.end_layers(middle_feature_maps)
-        x = self.pool(x)
-        x = torch.flatten(x, 1)
+        x = x.mean([2, 3])
         x = self.classifier(x)
         return x, attention_maps
 
@@ -578,7 +527,8 @@ def train_eval_AT(
                 temperature=TEMP,
             )
 
-            attn_loss = mse_loss(teacher_attn, student_attn)
+            student_attn = student_attn.view(-1, 8, 8)
+            attn_loss = attention_loss(teacher_attn, student_attn)
 
             student_loss = criterion(student_logits, labels)
             loss = (
@@ -663,7 +613,8 @@ class CIFAR10_AT(datasets.CIFAR10):
         attn = self.precomputed_attn[idx]
         return image, label, logits, attn
 
-def evaluate_model_performance(model, dataloader, device, num_classes=10):
+
+def evaluate_model_performance(model, dataloader, device, num_classes=10, attn=False):
     """
     Evaluate the model performance on a dataset with unbalanced classes.
 
@@ -681,7 +632,7 @@ def evaluate_model_performance(model, dataloader, device, num_classes=10):
     # Track correct predictions and total samples per class
     class_correct = [0 for _ in range(num_classes)]
     class_total = [0 for _ in range(num_classes)]
-    
+
     all_preds = []
     all_labels = []
 
@@ -691,7 +642,10 @@ def evaluate_model_performance(model, dataloader, device, num_classes=10):
             inputs, labels = inputs.to(device), labels.to(device)
 
             # Forward pass
-            outputs = model(inputs)
+            if attn:
+                outputs, _ = model(inputs)
+            else:
+                outputs = model(inputs)
             _, predicted = torch.max(outputs, 1)
 
             # Store all predictions and labels for later metrics
@@ -715,11 +669,11 @@ def evaluate_model_performance(model, dataloader, device, num_classes=10):
 
     # Compute other metrics using sklearn
     f1_report = classification_report(
-        all_labels, 
-        all_preds, 
-        digits=4, 
-        output_dict=True, 
-        zero_division=0  # Avoid warnings by handling divisions by zero
+        all_labels,
+        all_preds,
+        digits=4,
+        output_dict=True,
+        zero_division=0,  # Avoid warnings by handling divisions by zero
     )
     balanced_acc = balanced_accuracy_score(all_labels, all_preds)
     kappa = cohen_kappa_score(all_labels, all_preds)
@@ -731,7 +685,7 @@ def evaluate_model_performance(model, dataloader, device, num_classes=10):
         "f1_report": f1_report,
         "balanced_accuracy": balanced_acc,
         "cohen_kappa": kappa,
-        "confusion_matrix": conf_matrix
+        "confusion_matrix": conf_matrix,
     }
 
     return metrics
@@ -740,16 +694,18 @@ def evaluate_model_performance(model, dataloader, device, num_classes=10):
 def evaluate_and_drop_samples(model, loader, device):
     correct_indices = []
     model.eval()  # Set the model to evaluation mode
-    
+
     with torch.no_grad():  # No need to track gradients
         for idx, (inputs, labels) in enumerate(loader):
             inputs, labels = inputs.to(device), labels.to(device)
             outputs = model(inputs)
             _, predicted = torch.max(outputs.data, 1)
-            correct = (predicted == labels).nonzero().squeeze()  # Get correct indices in batch
-            
+            correct = (
+                (predicted == labels).nonzero().squeeze()
+            )  # Get correct indices in batch
+
             # Convert batch indices to dataset indices
             dataset_indices = [i.item() for i in (correct + idx * loader.batch_size)]
             correct_indices.extend(dataset_indices)
-    
+
     return correct_indices
