@@ -1,18 +1,17 @@
 import os
 from collections import Counter
 
-import numpy as np  # type:ignore
-import pandas as pd  # type:ignore
-import torch  # type:ignore
-from sklearn.model_selection import train_test_split  # type:ignore
-from torch.utils.data import DataLoader, Subset
-from torchvision import transforms  # type:ignore
-from torchvision.datasets import CIFAR10  # type:ignore
-
+import numpy as np
+import pandas as pd
+import torch
 from cifar10_models.mobilenetv2 import mobilenet_v2
-from UTILS_TORCH import CIFAR10WithIG  # test_model,
+from sklearn.model_selection import train_test_split
+from torch.utils.data import DataLoader, Subset
+from torchvision import transforms
+from torchvision.datasets import CIFAR10
 from UTILS_TORCH import (
     CIFAR10_KD,
+    CIFAR10WithIG,
     ModifiedStudent,
     SmallerMobileNet,
     train_eval_AT,
@@ -34,6 +33,7 @@ TEMP = 1
 NUM_WORKERS = 16
 OVERLAY_PROB = 0.1
 SPLIT_SIZE = 0.8
+START = 10
 SIMULATIONS = 60
 
 FOLDER = "Histories/montecarlo_2/IG/"
@@ -122,9 +122,18 @@ test_loader = DataLoader(
 )
 
 # montecarlo simulation
-results = []
-best_acc = 0
-for i in range(SIMULATIONS):
+if os.path.isfile(SAVE):
+    csv = pd.read_csv(SAVE)
+    results = csv["Test Accuracy"]
+    results = list(results)
+    print(results)
+    best_acc = np.array(results)
+    best_acc = best_acc.max()
+    print(best_acc)
+else:
+    results = []
+    best_acc = 0
+for i in range(START, SIMULATIONS):
     # Step 1: Get the class indices
     class_indices = {
         i: np.where(np.array(full_training_ds.targets) == i)[0] for i in range(10)

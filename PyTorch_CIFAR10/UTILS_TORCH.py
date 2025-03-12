@@ -494,7 +494,6 @@ def train_eval_AT(
 
     # Loss and optimizer
     criterion = nn.CrossEntropyLoss()
-    mse_loss = nn.MSELoss()
     optimizer = torch.optim.Adam(student.parameters(), lr=lr)
 
     # Store the metrics
@@ -527,7 +526,8 @@ def train_eval_AT(
                 temperature=TEMP,
             )
 
-            student_attn = student_attn.view(-1, 8, 8)
+            # teacher_attn = teacher_attn.view(-1, 8, 8)
+            # student_attn = student_attn.view(-1, 8, 8)
             attn_loss = attention_loss(teacher_attn, student_attn)
 
             student_loss = criterion(student_logits, labels)
@@ -709,3 +709,108 @@ def evaluate_and_drop_samples(model, loader, device):
             correct_indices.extend(dataset_indices)
 
     return correct_indices
+
+
+def train_eval(
+    model,
+    train_loader,
+    test_loader,
+    epochs=100,
+    lr=0.001,
+    device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    csv_path="Histories/Training.csv",
+):
+    """
+    Train and evaluate a model for regular supervised learning.
+
+    Parameters:
+        model: The neural network model to be trained and evaluated.
+        train_loader: DataLoader for training data.
+        test_loader: DataLoader for test data.
+        epochs: Number of training epochs.
+        lr: Learning rate for the optimizer.
+        device: Device to run the training on ('cuda' or 'cpu').
+        csv_path: Path to save the training history as a CSV file.
+
+    Returns:
+        model: The trained model.
+        test_acc: Test accuracy of the trained model.
+    """
+
+    # Loss and optimizer
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr)
+
+    # Store the metrics
+    metrics = []
+    for epoch in range(epochs):
+        model.train()
+        total_train_loss = 0.0
+        correct_train = 0
+        total_train = 0
+
+        # Wrap the DataLoader with tqdm for progress tracking
+        train_loader_tqdm = tqdm(
+            train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False
+        )
+        for images, labels in train_loader:
+            images, labels = images.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+
+            outputs = model(images)
+            loss = criterion(outputs, labels)
+
+            loss.backward()
+            optimizer.step()
+
+            total_train_loss += loss.item() * images.size(0)
+            _, predicted = torch.max(outputs, dim=1)
+            correct_train += (predicted == labels).sum().item()
+            total_train += labels.size(0)
+
+            # Update tqdm bar with the latest loss and accuracy
+            train_loader_tqdm.set_postfix(
+                loss=f"{loss.item():.4f}",
+                accuracy=f"{(100 * correct_train / total_train):.2f}%",
+            )
+            train_loader_tqdm.update()
+
+        epoch_loss = total_train_loss / total_train
+        epoch_acc = 100 * correct_train / total_train
+
+        # Append metrics for the current epoch to the list
+        metrics.append(
+            {
+                "Epoch": epoch + 1,
+                "Training Loss": epoch_loss,
+                "Training Accuracy": epoch_acc,
+            }
+        )
+
+        train_loader_tqdm.close()
+        print(
+            f"Epoch {epoch+1}/{epochs}: Loss: {epoch_loss:.4f},\
+            Accuracy: {epoch_acc:.2f}%"
+        )
+
+    metrics_df = pd.DataFrame(metrics)
+
+    metrics_df.to_csv(csv_path, index=False)
+
+    # Test the model
+    model.eval()
+    correct = 0
+    total = 0
+    with torch.no_grad():
+        for images, labels in test_loader:
+            images, labels = images.to(device), labels.to(device)
+            outputs = model(images)
+            _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    test_acc = 100 * correct / total
+    print(f"Test Accuracy: {test_acc:.2f}%")
+
+    return model, test_acc

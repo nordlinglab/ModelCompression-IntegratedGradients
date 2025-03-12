@@ -21,12 +21,9 @@ This repository contains the implementation of our novel approach to model compr
 │ └── studies_plot.py # Script for additional plotting
 ├── PyTorch_CIFAR10 # Scripts and models for CIFAR-10 dataset
 │ ├── Compute_IGs.py # Script to compute and Integrated Gradients
-│ ├── KD.py # Knowledge Distillation script
 │ ├── UTILS_TORCH.py # All functions and classes using PyTorch's framework
-│ ├── model_train.py # Script to train a model (baseline)
-│ ├── montecarlo.py # Script to perform a montecarlo simulation
-│ ├── param_search.py # Script to find the best parameters for KD
-│ ├── precompute_img.py # Script to precompute all the teacher's logits
+│ ├── Main.py # Script for training student model (scratch, KD, IG, AT, and their combinations)
+│ ├── precompute_img_attn.py # Script to precompute all the teacher's logits and attention maps
 │ ├── cifar10_models # Teacher model script and weights
 │ │ ├── mobilenetv2.py # Script for the teacher model
 │ │ ├── state_dicts
