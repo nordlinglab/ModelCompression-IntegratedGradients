@@ -34,6 +34,7 @@ This repository contains the implementation of our novel approach to model compr
 │   │   ├── mobilenetv2.py          # Script for the teacher model
 │   │   └── state_dicts/            # Pre-trained model weights
 │   │       └── mobilenet_v2.pt     # Weights for the teacher model
+│   ├── saved_models/               # Folder with models weights
 ├── LICENSE                         # License file
 └── README.md                       # This README file
 ```
