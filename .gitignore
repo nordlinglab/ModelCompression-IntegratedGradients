@@ -3,16 +3,19 @@ __pycache__/
 *.py[cod]
 *$py.class
 .ipynb
+
 saved_models/
+
 PyTorch_CIFAR10/model_analysis_20250219_070703.txt
 
-Jupyter_noteboooks/attention_maps.npz
-Jupyter_noteboooks/imagenet_igs.npy
-Jupyter_noteboooks/Compression_vs_accuracy.ipynb
-Jupyter_noteboooks/Compression_vs_accuracy_kd.ipynb
-Jupyter_noteboooks/Compression_vs_accuracy_not_pretrained.ipynb
-Jupyter_noteboooks/Compression_vs_accuracy_student.ipynb
-Jupyter_noteboooks/Tuned_KD_param_search.ipynb
+Jupyter_notebooks/attention_maps.npz
+Jupyter_notebooks/imagenet_igs.npy
+Jupyter_notebooks/Compression_vs_accuracy.ipynb
+Jupyter_notebooks/Compression_vs_accuracy_kd.ipynb
+Jupyter_notebooks/Compression_vs_accuracy_not_pretrained.ipynb
+Jupyter_notebooks/Compression_vs_accuracy_student.ipynb
+Jupyter_notebooks/Tuned_KD_param_search.ipynb
+Jupyter_notebooks/studies_vis_plot.ipynb
 
 
 
