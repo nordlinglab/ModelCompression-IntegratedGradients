@@ -12,31 +12,37 @@ This repository contains the implementation of our novel approach to model compr
 
 ```
 .
-├── Jupyter_notebooks # Notebooks for analysis and visualization
-│ ├── Compression_vs_accuracy\*.ipynb # Notebooks for compression vs. accuracy studies
-│ ├── IG_plots.ipynb # Notebook for Integrated Gradients plots
-│ ├── ImageNet.ipynb # Notebook for ImageNet related studies
-│ ├── Paper_plots.ipynb # Notebook for generating plots for the paper
-│ ├── statistical.ipynb # Notebook for statistical analysis
-│ └── studies_plot.py # Script for additional plotting
-├── PyTorch_CIFAR10 # Scripts and models for CIFAR-10 dataset
-│ ├── Compute_IGs.py # Script to compute and Integrated Gradients
-│ ├── UTILS_TORCH.py # All functions and classes using PyTorch's framework
-│ ├── Main.py # Script for training student model (scratch, KD, IG, AT, and their combinations)
-│ ├── precompute_img_attn.py # Script to precompute all the teacher's logits and attention maps
-│ ├── cifar10_models # Teacher model script and weights
-│ │ ├── mobilenetv2.py # Script for the teacher model
-│ │ ├── state_dicts
-│ │ │ └── mobilenet_v2.pt # weights for the teacher model
-├── saved_models # Trained model weights
-│ └── \*.pt # PyTorch model weights
-├── README.md # This README file
-└── LICENSE # License file
+├── .git                            # Git repository metadata
+├── .gitignore                      # Git ignore file
+├── PyTorch_CIFAR10/                # Scripts and models for CIFAR-10 dataset
+│   ├── analyse_models.py           # Script to analyze model architectures and performance
+│   ├── Compare_attention_maps.py   # Script for comparing attention maps between teacher and student models
+│   ├── compress_acc.py             # Script for compression vs. accuracy analysis
+│   ├── Compute_IGs.py              # Script to compute Integrated Gradients
+│   ├── main.py                     # Main script for training various configurations
+│   ├── model_train.py              # Script for training student models from scratch
+│   ├── precompute_img_attn.py      # Script to precompute teacher's logits and attention maps
+│   ├── UTILS_TORCH.py              # Utility functions and classes for PyTorch implementation
+│   ├── cifar10_models/             # Teacher model scripts and weights
+│   │   ├── mobilenetv2.py          # Script for the teacher model
+│   │   └── state_dicts/            # Pre-trained model weights
+│   │       └── mobilenet_v2.pt     # Weights for the teacher model
+├── LICENSE                         # License file
+└── README.md                       # This README file
 ```
 
-### Installation
+### Key Components
 
----
+- **analyse_models.py**: Analyzes and compares model architectures, parameters, and inference time for different compression levels.
+- **Compare_attention_maps.py**: Implements attention map comparison between teacher and student models under different training configurations.
+- **compress_acc.py**: Evaluates the relationship between compression factor and model accuracy.
+- **Compute_IGs.py**: Computes Integrated Gradients for CIFAR-10 images using both manual implementation and Captum library.
+- **main.py**: Main script for training student models with different configurations (IG, KD, AT, and combinations).
+- **model_train.py**: Trains student models from scratch without knowledge distillation.
+- **precompute_img_attn.py**: Pre-computes teacher model's logits and attention maps for efficient training.
+- **UTILS_TORCH.py**: Contains utility functions and classes, including model architectures, custom datasets, and training loops.
+
+### Installation
 
 #### Prerequisites
 
@@ -52,8 +58,6 @@ To use the scripts, you will need to create a Docker container from the provided
 docker pull pytorch/pytorch
 ```
 
-Pull the official PyTorch image from Docker Hub.
-
 2. Run the docker container
 
 ```
@@ -63,88 +67,75 @@ docker run -it -v absolute/path/to/ModelCompression-IntegratedGradients:/workspa
 This command runs the container in interactive mode and starts a Bash shell.
 It maps port 8888 for Jupyter notebooks, enables GPU support (if available), and sets up IPC namespace settings for PyTorch to perform optimally.
 
-##### Handling Additional Dependencies
+#### Handling Additional Dependencies
 
 In case you encounter missing Python packages while running scripts within the Docker container, you can install these packages using `pip`. For example:
 
 ```
-docker exec -it pytorch_container pip install <package name>
+docker exec -it <container name> pip install <package name>
 ```
 
 This command installs the required package inside the running container without needing to stop or rebuild the image.
 
 ### Usage
 
-This section provides detailed instructions on how to use the scripts and notebooks included in this repository to reproduce the research results or to apply the methods to new data.
+#### Running the Analysis Scripts
 
-- Enter the running container
+1. **Analyzing Model Architectures**:
 
-```
-docker exec -it <container name> bash
-```
+   ```
+   python PyTorch_CIFAR10/analyse_models.py
+   ```
 
-If the container is not running:
+   This will analyze the teacher model and generate different student models at various compression levels, comparing parameters, inference time, and structure.
 
-```
-docker start <container name>
-docker exec -it <container name> bash
-```
+2. **Computing Integrated Gradients**:
 
-- Troubleshooting: If the container isn't responding, try restarting it:
+   ```
+   python PyTorch_CIFAR10/Compute_IGs.py
+   ```
 
-```
-docker restart <container name>
-```
+   This will calculate the integrated gradients for the CIFAR-10 dataset, using both a manual implementation and the Captum library.
 
-#### Running Jupyter Notebooks
+3. **Training Student Models with Knowledge Distillation**:
 
-1. Start Jupyter Notebook Server: To use the Jupyter notebooks, start the Jupyter server from within the Docker container:
+   ```
+   python PyTorch_CIFAR10/compress_acc.py
+   ```
 
-```
-jupyter notebook --ip 0.0.0.0 --port 8888 --no-browser --allow-root
-```
+   This script trains student models with knowledge distillation and reports accuracy at different compression factors.
 
-This command starts a Jupyter notebook server inside the Docker container that you can access from your browser.
+4. **Training Student Models with Attention Transfer**:
 
-2. Access the Notebook: Open your browser and go to `http://localhost:8888`. You might need the token generated by the Jupyter server to log in, which is displayed in the terminal output.
+   ```
+   python PyTorch_CIFAR10/Compare_attention_maps.py
+   ```
 
-3. Navigate to the Notebook: Once logged in, navigate to the `Jupyter_notebooks` directory and open the desired notebook file (e.g., `Compression_vs_accuracy.ipynb`).
+   This script trains and compares student models with attention transfer, allowing for visual comparison of attention maps.
 
-#### Running Python Scripts
+5. **Main Training Script**:
+   ```
+   python PyTorch_CIFAR10/main.py
+   ```
+   The main script supports training with various configurations, including knowledge distillation, integrated gradients, and attention transfer.
 
-Ensure you are inside the Docker container, and run the sript:
+### Methodology
 
-```
-python path/to/script.py
-```
+Our approach combines three key techniques:
 
-For example, to run a Monte Carlo simulation:
+1. **Knowledge Distillation (KD)**: Transfers knowledge from a larger teacher model to a smaller student model by training the student to mimic the teacher's outputs.
 
-```
-cd /workspace/ModelCompression-IntegratedGradients/PyTorch_CIFAR10/
-python montecarlo.py
-```
+2. **Integrated Gradients (IG)**: Incorporates feature attribution from the teacher model to guide the student model's training, enhancing its focus on important features.
 
-#### Exiting and Cleaning Up
+3. **Attention Transfer (AT)**: Transfers the attention maps from the teacher model to the student model, helping it learn similar activation patterns.
 
-- Exit the Container: Type `exit` to leave the container's shell.
-- Stop the Container:
+### Results
 
-```
-docker stop <container_name>
-```
+The repository includes scripts to reproduce our experimental results showing that:
 
-- Remove the Container: If you're done and want to clean up:
-
-```
-docker rm <container name>
-```
-
-- Remove the Docker Image: If you need to free up disk space:
-
-```
-docker rmi <image_name>
-```
+- Combining KD with IG and AT improves student model performance compared to using these techniques individually.
+- Smaller student models can achieve comparable performance to larger teacher models by leveraging these techniques.
+- The student models maintain interpretability and feature importance similar to the teacher model.
 
 ### Contributing
 
