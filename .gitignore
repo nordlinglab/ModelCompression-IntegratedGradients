@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 .ipynb
 Jupyter_notebooks/
+saved_models/
 PyTorch_CIFAR10/model_analysis_20250219_070703.txt
 
 # C extensions
