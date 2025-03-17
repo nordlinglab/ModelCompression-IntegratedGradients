@@ -5,10 +5,9 @@ import pandas as pd  # type:ignore
 import torch  # type:ignore
 import torch.nn as nn  # type:ignore
 import torchvision.transforms as transforms  # type:ignore
+from cifar10_models.mobilenetv2 import mobilenet_v2
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10  # type:ignore
-
-from cifar10_models.mobilenetv2 import mobilenet_v2
 from UTILS_TORCH import (
     CIFAR10_KD,
     CIFAR10WithIG,
@@ -24,16 +23,16 @@ print(f"Currently using: '{device}'")
 NUM_EPOCHS = 100
 BATCH_SIZE = 64
 LEARN_RATE = 0.001
-ALPHA = 0.01
-TEMP = 2.5
-# GAMMA = 0.8
+ALPHA = 0
+TEMP = 1
+GAMMA = 0
 NUM_WORKERS = 16
-# OVERLAY_PROB = 0.1
-LAYERS = 17
-# [3, 5, 7, 9, 11, 13, 15, 17]
+OVERLAY_PROB = 0
+LAYERS = 5
+# LAYERS = [3, 5, 7, 9, 11, 13, 15, 17]
 START = 0
 SIMULATIONS = 10
-TYPE = "KD"
+TYPE = "Student"
 
 
 Teacher = mobilenet_v2(pretrained=True)
@@ -80,14 +79,15 @@ test.to(device)
 
 S = count_parameters(test)
 CF = teacher_params / S
-print(
-    f"Epoch: {NUM_EPOCHS}, Alpha = {ALPHA}, T = {TEMP}, \
-    CF: {CF}"
-)
 
-FOLDER = "Histories/compression_vs_acc/"
+# print(
+#     f"Epoch: {NUM_EPOCHS}, Alpha = {ALPHA}, T = {TEMP}, \
+#     CF: {CF}"
+# )
+
+FOLDER = "compression_vs_acc/"
 os.makedirs(os.path.dirname(FOLDER), exist_ok=True)
-SAVE = f"Histories/compression_vs_acc/{TYPE}_{CF:.2f}.csv"
+SAVE = f"compression_vs_acc/{TYPE}_{CF:.2f}.csv"
 print("Saving results as: ", SAVE)
 print("Number of runs for the simulation: ", SIMULATIONS)
 
