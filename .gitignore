@@ -2,9 +2,9 @@
 __pycache__/
 *.py[cod]
 *$py.class
-.ipynb
 
 PyTorch_CIFAR10/model_analysis_20250219_070703.txt
+PyTorch_CIFAR10/cifar10_attention_maps_divider_*.npy
 
 Jupyter_notebooks/attention_maps.npz
 Jupyter_notebooks/imagenet_igs.npy
@@ -14,7 +14,10 @@ Jupyter_notebooks/Compression_vs_accuracy_not_pretrained.ipynb
 Jupyter_notebooks/Compression_vs_accuracy_student.ipynb
 Jupyter_notebooks/Tuned_KD_param_search.ipynb
 Jupyter_notebooks/studies_vis_plot.ipynb
+Jupyter_notebooks/Analyse_compression_v_acc.ipynb
 
+GPUS/
+Histories/
 
 
 # C extensions
