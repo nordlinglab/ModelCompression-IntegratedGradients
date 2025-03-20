@@ -9,8 +9,9 @@ import torchvision.transforms as transforms
 from torch.utils.data import DataLoader
 from torchvision.datasets import CIFAR10
 
+from AT_compress import ModifiedStudent, ModifiedTeacher
 from cifar10_models.mobilenetv2 import mobilenet_v2
-from compress_UTILS import SmallerMobileNet, train_eval_kd
+from compress_UTILS import SmallerMobileNet, train_eval_AT, train_eval_kd
 from UTILS_TORCH import CIFAR10_KD, CIFAR10WithIG, count_parameters
 
 
@@ -34,8 +35,15 @@ def parse_args():
         "--type",
         type=str,
         required=True,
-        choices=["Student", "KD", "KD_IG", "IG"],
-        help="Type of configuration. Options: Student, KD, KD_IG, IG",
+        choices=["Student", "KD", "KD_IG", "IG", "KD_IG_AT"],
+        help="Type of configuration. Options: Student, KD, KD_IG, IG, KD_IG_AT",
+    )
+    parser.add_argument(
+        "--divider",
+        type=int,
+        required=False,
+        choices=[2, 4, 8, 20],
+        help="Divider to use for the ModifiedTeacher architecture, refer to AT compress for the number.",
     )
     return parser.parse_args()
 
@@ -46,6 +54,8 @@ def main():
     # Assign command line parameters to variables
     LAYERS = args.layers
     SIMULATIONS = args.simulations
+    GAMMA = 0
+    divider = 0
 
     # Set parameters based on the provided type
     if args.type == "Student":
@@ -64,6 +74,12 @@ def main():
         ALPHA = 0
         TEMP = 1
         OVERLAY_PROB = 0.1
+    elif args.type == "KD_IG_AT":
+        ALPHA = 0.01
+        TEMP = 2.5
+        OVERLAY_PROB = 0.1
+        GAMMA = 0.8
+        divider = args.divider
     else:
         # This should not happen as argparse restricts choices.
         raise ValueError("Invalid type provided.")
@@ -79,6 +95,10 @@ def main():
     print("TEMP =", TEMP)
     print("OVERLAY_PROB =", OVERLAY_PROB)
 
+    if args.type == "KD_IG_AT":
+        print("GAMMA = ", GAMMA)
+        print("Divider = ", divider)
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Currently using: '{device}'")
 
@@ -88,7 +108,11 @@ def main():
     LEARN_RATE = 0.001
     NUM_WORKERS = 16
 
-    Teacher = mobilenet_v2(pretrained=True)
+    if args.type == "KD_IG_AT":
+        Teacher = ModifiedTeacher(mobilenet_v2(pretrained=True), divider)
+    else:
+        Teacher = mobilenet_v2(pretrained=True)
+
     Teacher.to(device)
 
     teacher_params = count_parameters(Teacher)
@@ -112,6 +136,14 @@ def main():
     # Load the precomputed IGs
     igs = np.load(IGS)
 
+    teacher_attention_maps = None
+    if args.type == "KD_IG_AT" and args.divider == 2:
+        teacher_attention_maps = np.load("./data/cifar10_attention_maps.npy")
+    else:
+        teacher_attention_maps = np.load(
+            f"./data/cifar10_attention_maps_divider_{divider}.npy"
+        )
+
     transform = transforms.Compose(
         [
             transforms.ToTensor(),
@@ -134,6 +166,16 @@ def main():
             precomputed_logits=precomputed_logits,
             igs=igs,
             overlay_prob=OVERLAY_PROB,
+        )
+    elif args.type == "KD_IG_AT":
+        train_dataset = CIFAR10WithIG(
+            root="./data",
+            train=True,
+            transform=student_aug,
+            precomputed_logits=precomputed_logits,
+            igs=igs,
+            overlay_prob=OVERLAY_PROB,
+            precomputed_attn=teacher_attention_maps,
         )
     else:
         train_dataset = CIFAR10_KD(
@@ -187,21 +229,40 @@ def main():
         best_acc = 0
         START = 0
     for i in range(START, SIMULATIONS):
-        Student = SmallerMobileNet(mobilenet_v2(pretrained=False), LAYERS)
-        Student.to(device)
+        if args.type == "KD_IG_AT":
+            Student = ModifiedStudent(mobilenet_v2(pretrained=False), LAYERS)
+            Student.to(device)
 
-        train_time_start = time.time()
-        Student, acc, metrics_df = train_eval_kd(
-            student=Student,
-            train_loader=train_loader,
-            test_loader=test_loader,
-            epochs=NUM_EPOCHS,
-            lr=LEARN_RATE,
-            TEMP=TEMP,
-            ALPHA=ALPHA,
-            device=device,
-            csv_path=f"{FOLDER}{TYPE}_{CF:.2f}_{i+1}.csv",
-        )
+            train_time_start = time.time()
+            Student, acc, _ = train_eval_AT(
+                student=Student,
+                train_loader=train_loader,
+                test_loader=test_loader,
+                epochs=NUM_EPOCHS,
+                lr=LEARN_RATE,
+                TEMP=TEMP,
+                ALPHA=ALPHA,
+                GAMMA=GAMMA,
+                device=device,
+                csv_path=f"{FOLDER}{TYPE}_{CF:.2f}_{i+1}.csv",
+            )
+
+        else:
+            Student = SmallerMobileNet(mobilenet_v2(pretrained=False), LAYERS)
+            Student.to(device)
+
+            train_time_start = time.time()
+            Student, acc, _ = train_eval_kd(
+                student=Student,
+                train_loader=train_loader,
+                test_loader=test_loader,
+                epochs=NUM_EPOCHS,
+                lr=LEARN_RATE,
+                TEMP=TEMP,
+                ALPHA=ALPHA,
+                device=device,
+                csv_path=f"{FOLDER}{TYPE}_{CF:.2f}_{i+1}.csv",
+            )
         train_time = time.time() - train_time_start
         times.append(train_time)
         results.append(acc)

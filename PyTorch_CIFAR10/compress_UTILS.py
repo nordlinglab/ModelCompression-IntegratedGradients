@@ -5,7 +5,7 @@ import torch  # type: ignore
 from torch import nn  # type: ignore
 from tqdm import tqdm
 
-from UTILS_TORCH import kd_loss
+from UTILS_TORCH import attention_loss, kd_loss
 
 
 def test_model(model, loader, device):
@@ -18,6 +18,27 @@ def test_model(model, loader, device):
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    test_acc = 100 * correct / total
+    print(f"Accuracy of the model on the Testing images: {test_acc:.2f}")
+
+    return test_acc
+
+
+def test_model_att(model, loader, device, split_name="Testing"):
+    """
+    Function to test a model with attention maps
+    """
+    model.eval()
+    total = 0
+    correct = 0
+    with torch.no_grad():
+        for images, labels in loader:
+            images, labels = images.to(device), labels.to(device)
+            logits, _ = model(images)
+            _, predicted = torch.max(logits.data, 1)
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
@@ -157,5 +178,115 @@ def train_eval_kd(
     metrics_df.to_csv(csv_path, index=False)
 
     test_acc = test_model(student, test_loader, device)
+
+    return student, test_acc, metrics_df
+
+
+def train_eval_AT(
+    student,
+    train_loader,
+    test_loader,
+    epochs=100,
+    lr=0.001,
+    TEMP=2.0,
+    ALPHA=0.5,
+    GAMMA=0.5,
+    device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
+    csv_path="Histories/KD_param/KD.csv",
+):
+
+    # Loss and optimizer
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(student.parameters(), lr=lr)
+
+    # Store the metrics
+    metrics = []
+    for epoch in range(epochs):
+
+        epoch_start_time = time.time()
+        student.train()
+        total_train_loss = 0.0
+        correct_train = 0
+        total_train = 0
+
+        # Wrap the DataLoader with tqdm for progress tracking
+        train_loader_tqdm = tqdm(
+            train_loader, desc=f"Epoch {epoch+1}/{epochs}", leave=False
+        )
+        for images, labels, teacher_logits, teacher_attn in train_loader:
+            images, labels, teacher_logits, teacher_attn = (
+                images.to(device),
+                labels.to(device),
+                teacher_logits.to(device),
+                teacher_attn.to(device),
+            )
+
+            optimizer.zero_grad()
+
+            student_logits, student_attn = student(images)
+
+            distillation_loss = kd_loss(
+                logits_student=student_logits,
+                logits_teacher=teacher_logits,
+                temperature=TEMP,
+            )
+
+            attn_loss = attention_loss(teacher_attn, student_attn)
+
+            student_loss = criterion(student_logits, labels)
+            loss = (
+                ALPHA * distillation_loss
+                + (1 - ALPHA) * student_loss
+                + GAMMA * attn_loss
+            )
+
+            loss.backward()
+            optimizer.step()
+
+            total_train_loss += loss.item() * images.size(0)
+            _, predicted = torch.max(student_logits, dim=1)
+            correct_train += (predicted == labels).sum().item()
+            total_train += labels.size(0)
+
+            # Update tqdm bar with the latest loss and accuracy
+            train_loader_tqdm.set_postfix(
+                loss=f"{loss.item():.4f}",
+                accuracy=f"{(100 * correct_train / total_train):.2f}%",
+            )
+            train_loader_tqdm.update()
+        epoch_loss = total_train_loss / total_train
+        epoch_acc = 100 * correct_train / total_train
+
+        epoch_time = time.time() - epoch_start_time
+
+        inference_start_time = time.time()
+        test_acc = test_model_att(student, test_loader, device)
+        inference_time = time.time() - inference_start_time
+
+        # Append metrics for the current epoch to the list
+        metrics.append(
+            {
+                "Epoch": epoch + 1,
+                "Training Loss": epoch_loss,
+                "Training Accuracy": epoch_acc,
+                "Testing Accuracy": test_acc,
+                "Epoch Time (s)": epoch_time,
+                "Inference Time (s)": inference_time,
+            }
+        )
+
+        train_loader_tqdm.close()
+        print(
+            f"Epoch {epoch+1}/{epochs}: Loss: {epoch_loss:.4f}, "
+            f"Accuracy: {epoch_acc:.2f}%, "
+            f"Epoch Time: {epoch_time:.2f}s, "
+            f"Inference Time: {inference_time:.2f}s"
+        )
+
+    metrics_df = pd.DataFrame(metrics)
+
+    metrics_df.to_csv(csv_path, index=False)
+
+    test_acc = test_model_att(student, test_loader, device)
 
     return student, test_acc, metrics_df

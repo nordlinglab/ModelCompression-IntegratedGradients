@@ -4,7 +4,25 @@ import torch.nn as nn
 from cifar10_models.mobilenetv2 import mobilenet_v2
 from UTILS_TORCH import attention_map, count_parameters
 
-device = "mps" if torch.backends.mps.is_available() else "cpu"
+
+class ModifiedTeacher(nn.Module):
+    def __init__(self, original_model, divider):
+        super(ModifiedTeacher, self).__init__()
+        # Divide the model into two parts around the middle layer
+        middle_index = len(original_model.features) // divider
+        self.front_layers = nn.Sequential(*original_model.features[:middle_index])
+        self.middle_layer = original_model.features[middle_index]
+        self.end_layers = nn.Sequential(*original_model.features[middle_index + 1 :])
+        self.classifier = nn.Sequential(*original_model.classifier)
+
+    def forward(self, x):
+        x = self.front_layers(x)
+        middle_feature_maps = self.middle_layer(x)
+        attention_maps = attention_map(middle_feature_maps)
+        x = self.end_layers(middle_feature_maps)
+        x = x.mean([2, 3])
+        x = self.classifier(x)
+        return x, attention_maps
 
 
 class ModifiedStudent(nn.Module):
@@ -48,45 +66,53 @@ class ModifiedStudent(nn.Module):
         return x, attention_maps
 
 
-# List of layer configurations to test
-LAYERS = [3, 5, 7, 9, 11, 13, 15, 17]
-DIVIDERS = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
+if __name__ == "__main__":
 
-for LAYER in LAYERS:
-    # Load teacher model and count its parameters
-    teacher = mobilenet_v2(pretrained=True)
-    teacher.to(device)
-    t = count_parameters(teacher)
+    device = "mps" if torch.backends.mps.is_available() else "cpu"
 
-    if LAYER < 9:
-        try:
-            student = ModifiedStudent(mobilenet_v2(pretrained=True), LAYER)
-            student.to(device)
-            s = count_parameters(student)
-            CF = t / s
-            print(f"Compression Factor (CF): {CF}, using middle_layer_index: 2")
+    # List of layer configurations to test
+    LAYERS = [3, 5, 7, 9, 11, 13, 15, 17]
+    DIVIDERS = [2, 4, 6, 8, 10, 12, 14, 16, 18, 20]
 
-        except Exception as e:
-            continue  # Skip to the next LAYER value
-    else:
-        created = False
-        for divider in DIVIDERS:
+    for LAYER in LAYERS:
+        # Load teacher model and count its parameters
+        teacher = mobilenet_v2(pretrained=True)
+        teacher.to(device)
+        t = count_parameters(teacher)
+
+        if LAYER < 9:
             try:
-                student = ModifiedStudent(mobilenet_v2(pretrained=True), LAYER, divider)
+                student = ModifiedStudent(mobilenet_v2(pretrained=True), LAYER)
                 student.to(device)
-
                 s = count_parameters(student)
                 CF = t / s
-                print(
-                    f"Compression Factor (CF): {CF}, using middle_layer_index: {divider}"
-                )
+                print(f"Compression Factor (CF): {CF}, using middle_layer_index: 2")
 
-                created = True
-
-                break  # Exit the loop once a valid divider is found
             except Exception as e:
-                continue
+                continue  # Skip to the next LAYER value
+        else:
+            created = False
+            for divider in DIVIDERS:
+                try:
+                    student = ModifiedStudent(
+                        mobilenet_v2(pretrained=True), LAYER, divider
+                    )
+                    student.to(device)
 
-        if not created:
-            print(f"Cannot create model with {LAYER} layers after trying all dividers.")
-            continue  # Skip to the next LAYER value
+                    s = count_parameters(student)
+                    CF = t / s
+                    print(
+                        f"Compression Factor (CF): {CF}, using middle_layer_index: {divider}"
+                    )
+
+                    created = True
+
+                    break  # Exit the loop once a valid divider is found
+                except Exception as e:
+                    continue
+
+            if not created:
+                print(
+                    f"Cannot create model with {LAYER} layers after trying all dividers."
+                )
+                continue  # Skip to the next LAYER value
