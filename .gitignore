@@ -18,6 +18,7 @@ Jupyter_notebooks/Analyse_compression_v_acc.ipynb
 
 GPUS/
 Histories/
+data/
 
 
 # C extensions
