@@ -62,14 +62,16 @@ for model in MODEL_TYPES:
                         results[model][cf]["train"].append(train_acc)
                         results[model][cf]["test"].append(test_acc)
 
-# Calculate means and standard deviations
+# Calculate means, mins, and maxes (replaced std with min/max)
 stats = {
     model: {
         "cf": COMPRESSION_FACTORS,
         "train_mean": [],
-        "train_std": [],
+        "train_min": [],
+        "train_max": [],
         "test_mean": [],
-        "test_std": [],
+        "test_min": [],
+        "test_max": [],
     }
     for model in MODEL_TYPES
 }
@@ -81,17 +83,21 @@ for model in MODEL_TYPES:
 
         if train_values:
             stats[model]["train_mean"].append(np.mean(train_values))
-            stats[model]["train_std"].append(np.std(train_values))
+            stats[model]["train_min"].append(np.min(train_values))
+            stats[model]["train_max"].append(np.max(train_values))
         else:
             stats[model]["train_mean"].append(np.nan)
-            stats[model]["train_std"].append(np.nan)
+            stats[model]["train_min"].append(np.nan)
+            stats[model]["train_max"].append(np.nan)
 
         if test_values:
             stats[model]["test_mean"].append(np.mean(test_values))
-            stats[model]["test_std"].append(np.std(test_values))
+            stats[model]["test_min"].append(np.min(test_values))
+            stats[model]["test_max"].append(np.max(test_values))
         else:
             stats[model]["test_mean"].append(np.nan)
-            stats[model]["test_std"].append(np.nan)
+            stats[model]["test_min"].append(np.nan)
+            stats[model]["test_max"].append(np.nan)
 
 # Use the provided exact values
 compression_factors = [1.0, 2.19, 4.12, 7.29, 12.04, 28.97, 54.59, 139.43, 1121.71]
@@ -112,12 +118,32 @@ for model in MODEL_TYPES:
         else:
             normalized_acc[model].append(np.nan)
 
+# Calculate normalized min and max values
+normalized_min = {}
+normalized_max = {}
+for model in MODEL_TYPES:
+    normalized_min[model] = [100.0]  # Teacher point
+    normalized_max[model] = [100.0]  # Teacher point
+
+    for i in range(len(COMPRESSION_FACTORS)):
+        test_min = stats[model]["test_min"][i]
+        test_max = stats[model]["test_max"][i]
+
+        if not np.isnan(test_min) and not np.isnan(test_max):
+            norm_min = (test_min / teacher_accuracy) * 100
+            norm_max = (test_max / teacher_accuracy) * 100
+            normalized_min[model].append(norm_min)
+            normalized_max[model].append(norm_max)
+        else:
+            normalized_min[model].append(np.nan)
+            normalized_max[model].append(np.nan)
+
 # Define color map
 color_map = {"Student": "blue", "KD": "orange", "KD_IG": "green", "IG": "red"}
 
 # Main figure setup
 plt.rcParams["font.family"] = "Times New Roman"
-plt.rcParams["font.size"] = 24
+plt.rcParams["font.size"] = 36
 plt.rcParams["lines.linewidth"] = 2
 
 # Create figure with two y-axes
@@ -135,7 +161,7 @@ for model in MODEL_TYPES:
     color = color_map[model]
 
     if model == "KD_IG":
-        # Plot KD_IG with line and shaded region for std
+        # Plot KD_IG with line and shaded region between min and max
         ax1.plot(
             compression_factors[1:],
             normalized_acc[model][1:],
@@ -144,24 +170,13 @@ for model in MODEL_TYPES:
             label=display_name,
         )
 
-        # Calculate upper and lower bounds for the shaded region
-        upper_bound = []
-        lower_bound = []
-
-        for i, cf in enumerate(COMPRESSION_FACTORS):
-            mean = stats[model]["test_mean"][i]
-            std = stats[model]["test_std"][i]
-            if not np.isnan(mean) and not np.isnan(std):
-                upper = ((mean + std) / teacher_accuracy) * 100
-                lower = ((mean - std) / teacher_accuracy) * 100
-                upper_bound.append(upper)
-                lower_bound.append(lower)
-            else:
-                upper_bound.append(np.nan)
-                lower_bound.append(np.nan)
-
+        # Use min and max for the shaded region
         ax1.fill_between(
-            compression_factors[1:], lower_bound, upper_bound, alpha=0.3, color=color
+            compression_factors[1:],
+            normalized_min[model][1:],
+            normalized_max[model][1:],
+            alpha=0.3,
+            color=color,
         )
     else:
         # Plot other models with just lines
@@ -232,25 +247,11 @@ for model in MODEL_TYPES:
         # Plot KD_IG with line and markers
         inset_ax1.plot(cf_mini, model_acc_mini, marker="o", color=color)
 
-        # Calculate upper and lower bounds for shaded region
-        upper_bound = []
-        lower_bound = []
+        # Use min and max for the shaded region in inset
+        min_values = [normalized_min[model][i] for i in inset_indices]
+        max_values = [normalized_max[model][i] for i in inset_indices]
 
-        for i in range(1, 5):  # CF 2.19 to 12.04
-            mean = stats[model]["test_mean"][i - 1]  # Adjust index
-            std = stats[model]["test_std"][i - 1]
-            if not np.isnan(mean) and not np.isnan(std):
-                upper = ((mean + std) / teacher_accuracy) * 100
-                lower = ((mean - std) / teacher_accuracy) * 100
-                upper_bound.append(upper)
-                lower_bound.append(lower)
-            else:
-                upper_bound.append(np.nan)
-                lower_bound.append(np.nan)
-
-        inset_ax1.fill_between(
-            cf_mini, lower_bound, upper_bound, alpha=0.3, color=color
-        )
+        inset_ax1.fill_between(cf_mini, min_values, max_values, alpha=0.3, color=color)
     else:
         # Plot other models
         inset_ax1.plot(cf_mini, model_acc_mini, marker="o", color=color)
@@ -263,19 +264,19 @@ inset_ax2.plot(cf_mini, speedup_mini, marker="s", color="black", linestyle="--")
 inset_ax1.grid(True)
 inset_ax1.xaxis.set_major_formatter(ScalarFormatter())
 
-plt.savefig("Compression_speedup.pdf")
-plt.show()
+plt.savefig("Hernandez2025_compression_vs_acc_speedup.pdf")
+# plt.show()
 
-# # Print summary statistics
-# print("\nSummary Statistics:")
-# for model in MODEL_TYPES:
-#     display_name = "KD & IG" if model == "KD_IG" else model
-#     print(f"\n{display_name} Model:")
-#     for i, cf in enumerate(COMPRESSION_FACTORS):
-#         print(f"  CF={cf}:")
-#         print(
-#             f"    Train: {stats[model]['train_mean'][i]:.4f} ± {stats[model]['train_std'][i]:.4f}"
-#         )
-#         print(
-#             f"    Test:  {stats[model]['test_mean'][i]:.4f} ± {stats[model]['test_std'][i]:.4f}"
-#         )
+# Print summary statistics
+print("\nSummary Statistics:")
+for model in MODEL_TYPES:
+    display_name = "KD & IG" if model == "KD_IG" else model
+    print(f"\n{display_name} Model:")
+    for i, cf in enumerate(COMPRESSION_FACTORS):
+        print(f"  CF={cf}:")
+        print(
+            f"    Train: {stats[model]['train_mean'][i]:.4f} (min: {stats[model]['train_min'][i]:.4f}, max: {stats[model]['train_max'][i]:.4f})"
+        )
+        print(
+            f"    Test:  {stats[model]['test_mean'][i]:.4f} (min: {stats[model]['test_min'][i]:.4f}, max: {stats[model]['test_max'][i]:.4f})"
+        )

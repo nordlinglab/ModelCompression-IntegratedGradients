@@ -2,10 +2,8 @@ import numpy as np
 from scipy import stats as scipy_stats
 
 # Input data
-Student = np.array(
-    [91.19, 90.5, 91.32, 91.28, 91.36, 91.35, 91.43, 91.05, 90.86, 91.36]
-)
-KD_IG = np.array([91.73, 91.91, 91.79, 92.21, 92.25, 92.45, 92.21, 91.74, 92.05, 91.94])
+Student = np.array([91.19, 90.5, 91.32, 91.28, 91.36, 91.35, 91.43, 91.05, 90.86, 91.5])
+KD_IG = np.array([92.58, 91.73, 92.08, 92.45, 91.96, 91.58, 91.82, 91.62, 92.13, 92.23])
 KD = np.array([91.73, 91.45, 91.19, 91.37, 92.29, 91.88, 92.01, 91.41, 92.01, 90.88])
 KD_AT = np.array([91.48, 92.05, 91.49, 91.69, 91.58, 91.92, 92.2, 91.62, 92.06, 91.39])
 IG_AT = np.array([91.7, 91.61, 91.05, 91.84, 91.38, 91.22, 91.3, 91.5, 91.57, 91.48])
@@ -31,31 +29,35 @@ methods = {
 results = {}
 for name, data in methods.items():
     results[name] = {
-        "highest": np.max(data),
+        "min": np.min(data),
+        "max": np.max(data),
         "mean": np.mean(data),
         "std": np.std(data, ddof=1),  # ddof=1 for sample standard deviation
     }
 
 # Print basic statistics
-print("Method\t\tHighest\tMean\t\tStd Dev")
+print("Method\t\tMin\tMean\tMax\tStd Dev")
 print("-" * 50)
 for name, stats_data in results.items():
     print(
-        f"{name:<12}\t{stats_data['highest']:.2f}\t{stats_data['mean']:.2f}\t{stats_data['std']:.4f}"
+        f"{name:<12}\t{stats_data['min']:.2f}\t{stats_data['mean']:.2f}\t{stats_data['max']:.2f}\t{stats_data['std']:.4f}"
     )
 
 # Calculate paired t-tests (using Student as reference)
 reference = "Student"
 print("\nT-statistics and p-values (compared to Student):")
+print("Delta accuracy is relative to the Teacher Acc: 93.91%")
 print("-" * 50)
 print("Method\t\tDelta Acc\tt-statistic\tp-value")
 print("-" * 50)
+student_delta = np.mean(Student) - 93.91
+print(f"{reference:<12}\t{student_delta:.2f}\t\t - \t\t - ")
 
 for name, data in methods.items():
     if name != reference:
         # Calculate paired t-test
         t_stat, p_val = scipy_stats.ttest_rel(data, methods[reference])
-        delta = np.mean(data) - np.mean(methods[reference])
+        delta = np.mean(data) - 93.91
         print(f"{name:<12}\t{delta:+.2f}%\t\t{t_stat:.4f}\t\t{p_val:.6f}")
 
 # Calculate t-tests between all pairs

@@ -6,7 +6,6 @@ import pandas as pd
 from matplotlib.ticker import AutoMinorLocator, ScalarFormatter
 
 # Define constants
-GPU_FOLDERS = ["A5000", "3090", "3060 Ti"]
 MODEL_TYPES = ["Student", "KD", "IG", "KD_IG"]  # Reordered to make KD_IG last
 COMPRESSION_FACTORS = [
     "2.19",
@@ -18,215 +17,191 @@ COMPRESSION_FACTORS = [
     "139.43",
     "1121.71",
 ]
-BASE_DIR = "./../GPUS"  # Updated base directory
+BASE_DIR = "./../Experiment_histories/Compression_acc"  # New base directory
 
-# Dictionary to store results
+# Dictionary to store results (only testing accuracy)
 results = {
-    model: {cf: {"train": [], "test": []} for cf in COMPRESSION_FACTORS}
-    for model in MODEL_TYPES
+    model: {cf: {"test": []} for cf in COMPRESSION_FACTORS} for model in MODEL_TYPES
 }
 
 
-# Function to extract final accuracy from CSV
-def extract_final_accuracy(filepath):
+# Function to extract all test accuracies from CSV
+def extract_all_accuracies(filepath):
     try:
         df = pd.read_csv(filepath)
-        if "Training Accuracy" in df.columns and "Testing Accuracy" in df.columns:
-            # Get the last row's training and testing accuracy
-            last_row = df.iloc[-1]
-            return last_row["Training Accuracy"], last_row["Testing Accuracy"]
+        if "Test Accuracy" in df.columns:
+            # Get all testing accuracy values and convert to float
+            try:
+                # Try to convert to numeric, coerce errors to NaN
+                test_accuracies = (
+                    pd.to_numeric(df["Test Accuracy"], errors="coerce")
+                    .dropna()
+                    .tolist()
+                )
+
+                # Print for debugging
+                print(
+                    f"File: {filepath}, Values: {test_accuracies[:5]}... (showing up to 5)"
+                )
+
+                return test_accuracies
+            except Exception as inner_e:
+                print(f"Error converting values in {filepath} to numeric: {inner_e}")
+                # Return sample of raw values for debugging
+                raw_values = df["Testing Accuracy"].head().tolist()
+                print(f"Sample raw values: {raw_values}")
+                return None
         else:
-            print(f"Warning: Columns not found in {filepath}")
-            return None, None
+            print(f"Warning: Testing Accuracy column not found in {filepath}")
+            # Print available columns for debugging
+            print(f"Available columns: {df.columns.tolist()}")
+            return None
     except Exception as e:
         print(f"Error reading {filepath}: {e}")
-        return None, None
+        return None
 
 
 # Process files for each model type and compression factor
+print("\nReading CSV files:")
+for cf in COMPRESSION_FACTORS:
+    for model in MODEL_TYPES:
+        # Updated filepath to match the new folder structure
+        filepath = os.path.join(BASE_DIR, cf, f"{model}_{cf}.csv")
+        print(f"Looking for file: {filepath}")
+
+        if os.path.exists(filepath):
+            print(f"Found file: {filepath}")
+            test_accuracies = extract_all_accuracies(filepath)
+            if test_accuracies is not None and len(test_accuracies) > 0:
+                results[model][cf]["test"].extend(test_accuracies)
+                print(f"Added {len(test_accuracies)} values for {model}, CF={cf}")
+            else:
+                print(f"No valid accuracy values found in {filepath}")
+        else:
+            print(f"File not found: {filepath}")
+
+# Print a summary of collected data before processing
+print("\nCollected data summary:")
 for model in MODEL_TYPES:
     for cf in COMPRESSION_FACTORS:
-        # Determine how many files to look for based on compression factor
-        max_file_num = 8 if float(cf) <= 12.04 else 1
+        values = results[model][cf]["test"]
+        print(f"{model}, CF={cf}: {len(values)} values collected")
 
-        for gpu in GPU_FOLDERS:
-            for file_num in range(1, max_file_num + 1):
-                # Updated filepath to match the requested structure
-                filepath = os.path.join(
-                    BASE_DIR, gpu, f"compression_time_acc/{model}_{cf}_{file_num}.csv"
-                )
-
-                if os.path.exists(filepath):
-                    train_acc, test_acc = extract_final_accuracy(filepath)
-                    if train_acc is not None and test_acc is not None:
-                        results[model][cf]["train"].append(train_acc)
-                        results[model][cf]["test"].append(test_acc)
-
-# Calculate means and standard deviations
+# Calculate means, mins, and maxes (only for test accuracy)
 stats = {
     model: {
         "cf": COMPRESSION_FACTORS,
-        "train_mean": [],
-        "train_std": [],
         "test_mean": [],
-        "test_std": [],
+        "test_min": [],
+        "test_max": [],
     }
     for model in MODEL_TYPES
 }
 
 for model in MODEL_TYPES:
     for cf in COMPRESSION_FACTORS:
-        train_values = results[model][cf]["train"]
         test_values = results[model][cf]["test"]
-
-        if train_values:
-            stats[model]["train_mean"].append(np.mean(train_values))
-            stats[model]["train_std"].append(np.std(train_values))
-        else:
-            stats[model]["train_mean"].append(np.nan)
-            stats[model]["train_std"].append(np.nan)
 
         if test_values:
             stats[model]["test_mean"].append(np.mean(test_values))
-            stats[model]["test_std"].append(np.std(test_values))
+            stats[model]["test_min"].append(np.min(test_values))
+            stats[model]["test_max"].append(np.max(test_values))
         else:
             stats[model]["test_mean"].append(np.nan)
-            stats[model]["test_std"].append(np.nan)
+            stats[model]["test_min"].append(np.nan)
+            stats[model]["test_max"].append(np.nan)
 
 # Use the provided exact values
 compression_factors = [1.0, 2.19, 4.12, 7.29, 12.04, 28.97, 54.59, 139.43, 1121.71]
 teacher_accuracy = 93.91
-# Assume teacher training accuracy is 100% (you may want to adjust this)
-teacher_train_accuracy = 100.0
 speedup_values = [1.0, 10.6, 11.1, 15.0, 17.1, 20.6, 25.27, 35.71, 103.5]
 
 # Normalize test accuracy relative to the teacher model (teacher = 100%)
-normalized_test_acc = {}
+normalized_acc = {}
 for model in MODEL_TYPES:
     # Add the teacher accuracy as the first point (100%)
-    normalized_test_acc[model] = [100.0]  # Teacher is 100%
+    normalized_acc[model] = [100.0]  # Teacher is 100%
 
     # Add the normalized values for all other compression factors
     for i, mean in enumerate(stats[model]["test_mean"]):
         if not np.isnan(mean):
             norm_acc = (mean / teacher_accuracy) * 100
-            normalized_test_acc[model].append(norm_acc)
+            normalized_acc[model].append(norm_acc)
         else:
-            normalized_test_acc[model].append(np.nan)
+            normalized_acc[model].append(np.nan)
 
-# Normalize training accuracy relative to the teacher model (teacher = 100%)
-normalized_train_acc = {}
+# Calculate normalized min and max values
+normalized_min = {}
+normalized_max = {}
 for model in MODEL_TYPES:
-    # Add the teacher accuracy as the first point (100%)
-    normalized_train_acc[model] = [100.0]  # Teacher is 100%
+    normalized_min[model] = [100.0]  # Teacher point
+    normalized_max[model] = [100.0]  # Teacher point
 
-    # Add the normalized values for all other compression factors
-    for i, mean in enumerate(stats[model]["train_mean"]):
-        if not np.isnan(mean):
-            norm_acc = (mean / teacher_train_accuracy) * 100
-            normalized_train_acc[model].append(norm_acc)
+    for i in range(len(COMPRESSION_FACTORS)):
+        test_min = stats[model]["test_min"][i]
+        test_max = stats[model]["test_max"][i]
+
+        if not np.isnan(test_min) and not np.isnan(test_max):
+            norm_min = (test_min / teacher_accuracy) * 100
+            norm_max = (test_max / teacher_accuracy) * 100
+            normalized_min[model].append(norm_min)
+            normalized_max[model].append(norm_max)
         else:
-            normalized_train_acc[model].append(np.nan)
+            normalized_min[model].append(np.nan)
+            normalized_max[model].append(np.nan)
 
 # Define color map
 color_map = {"Student": "blue", "KD": "orange", "KD_IG": "green", "IG": "red"}
 
 # Main figure setup
 plt.rcParams["font.family"] = "Times New Roman"
-plt.rcParams["font.size"] = 24
+plt.rcParams["font.size"] = 36
 plt.rcParams["lines.linewidth"] = 2
 
-# Create figure with subplots - left for training, right for testing
-fig, (ax_train, ax_test) = plt.subplots(1, 2, figsize=(24, 12), sharey=True)
+# Create figure with two y-axes
+fig, ax1 = plt.subplots(figsize=(24, 15))
+ax2 = ax1.twinx()
 
-# Create twin axes for speedup in both subplots
-ax_train_speedup = ax_train.twinx()
-ax_test_speedup = ax_test.twinx()
-
-# Add teacher point with star marker to both plots
-ax_train.scatter(
-    compression_factors[0], 100, marker="*", color="black", s=400, label="Teacher"
-)
-ax_test.scatter(
+# Add teacher point with star marker
+ax1.scatter(
     compression_factors[0], 100, marker="*", color="black", s=400, label="Teacher"
 )
 
-# Plotting on left subplot (Training Accuracy)
+# Plotting on left y-axis (Accuracy)
 for model in MODEL_TYPES:
     display_name = "KD & IG" if model == "KD_IG" else model
     color = color_map[model]
 
-    # Plot training accuracy
-    ax_train.plot(
-        compression_factors[1:],
-        normalized_train_acc[model][1:],
-        marker="o",
-        color=color,
-        label=display_name,
-    )
-
     if model == "KD_IG":
-        # Calculate upper and lower bounds for the shaded region (train)
-        upper_bound_train = []
-        lower_bound_train = []
-
-        for i, cf in enumerate(COMPRESSION_FACTORS):
-            mean = stats[model]["train_mean"][i]
-            std = stats[model]["train_std"][i]
-            if not np.isnan(mean) and not np.isnan(std):
-                upper = ((mean + std) / teacher_train_accuracy) * 100
-                lower = ((mean - std) / teacher_train_accuracy) * 100
-                upper_bound_train.append(upper)
-                lower_bound_train.append(lower)
-            else:
-                upper_bound_train.append(np.nan)
-                lower_bound_train.append(np.nan)
-
-        ax_train.fill_between(
+        # Plot KD_IG with line and shaded region between min and max
+        ax1.plot(
             compression_factors[1:],
-            lower_bound_train,
-            upper_bound_train,
+            normalized_acc[model][1:],
+            marker="o",
+            color=color,
+            label=display_name,
+        )
+
+        # Use min and max for the shaded region
+        ax1.fill_between(
+            compression_factors[1:],
+            normalized_min[model][1:],
+            normalized_max[model][1:],
             alpha=0.3,
             color=color,
         )
-
-# Plotting on right subplot (Testing Accuracy)
-for model in MODEL_TYPES:
-    display_name = "KD & IG" if model == "KD_IG" else model
-    color = color_map[model]
-
-    # Plot test accuracy
-    ax_test.plot(
-        compression_factors[1:],
-        normalized_test_acc[model][1:],
-        marker="o",
-        color=color,
-        label=display_name,
-    )
-
-    if model == "KD_IG":
-        # Calculate upper and lower bounds for the shaded region (test)
-        upper_bound = []
-        lower_bound = []
-
-        for i, cf in enumerate(COMPRESSION_FACTORS):
-            mean = stats[model]["test_mean"][i]
-            std = stats[model]["test_std"][i]
-            if not np.isnan(mean) and not np.isnan(std):
-                upper = ((mean + std) / teacher_accuracy) * 100
-                lower = ((mean - std) / teacher_accuracy) * 100
-                upper_bound.append(upper)
-                lower_bound.append(lower)
-            else:
-                upper_bound.append(np.nan)
-                lower_bound.append(np.nan)
-
-        ax_test.fill_between(
-            compression_factors[1:], lower_bound, upper_bound, alpha=0.3, color=color
+    else:
+        # Plot other models with just lines
+        ax1.plot(
+            compression_factors[1:],
+            normalized_acc[model][1:],
+            marker="o",
+            color=color,
+            label=display_name,
         )
 
-# Plotting speedup on both subplots (use dashed black line)
-ax_train_speedup.plot(
+# Plotting on right y-axis (Speedup)
+ax2.plot(
     compression_factors[1:],
     speedup_values[1:],
     marker="s",
@@ -234,147 +209,70 @@ ax_train_speedup.plot(
     linestyle="--",
     label="Speed up",
 )
-ax_train_speedup.scatter(
-    compression_factors[0], speedup_values[0], marker="*", color="black", s=400
-)
+ax2.scatter(compression_factors[0], speedup_values[0], marker="*", color="black", s=400)
 
-ax_test_speedup.plot(
-    compression_factors[1:],
-    speedup_values[1:],
-    marker="s",
-    color="black",
-    linestyle="--",
-    label="Speed up",
-)
-ax_test_speedup.scatter(
-    compression_factors[0], speedup_values[0], marker="*", color="black", s=400
-)
+# Configure left y-axis (Accuracy)
+ax1.set_xscale("log")
+ax1.set_xlabel("Compression Factor (a.u.)")
+ax1.set_ylabel("Testing Accuracy vs. Teacher Model (%)")
+ax1.set_ylim(0, 105)  # Adjusted to accommodate 100% for teacher
+ax1.grid(True, which="both", axis="both", alpha=0.3)
 
-# Configure axes
-for ax in [ax_train, ax_test]:
-    ax.set_xscale("log")
-    ax.set_xlabel("Compression Factor (a.u.)")
-    ax.set_ylim(0, 105)  # Adjusted to accommodate 100% for teacher
-    ax.grid(True, which="both", axis="both", alpha=0.3)
-    ax.xaxis.set_minor_locator(AutoMinorLocator())
-    ax.yaxis.set_minor_locator(AutoMinorLocator())
+# Configure right y-axis (Speedup)
+ax2.set_ylabel("Speed up vs. Teacher Model (a.u.)")
+ax2.set_ylim(0, 110)  # Adjusted based on speedup values
 
-# Set specific y-axis labels
-ax_train.set_ylabel("Training Accuracy vs. Teacher Model (%)")
-# No y-label for ax_test since it shares y-axis with ax_train
+# Add minor ticks to both axes
+ax1.xaxis.set_minor_locator(AutoMinorLocator())
+ax1.yaxis.set_minor_locator(AutoMinorLocator())
+ax2.yaxis.set_minor_locator(AutoMinorLocator())
 
-# Configure speedup axes
-for ax in [ax_train_speedup, ax_test_speedup]:
-    ax.set_ylabel("Speed up vs. Teacher Model (a.u.)")
-    ax.set_ylim(0, 110)  # Adjusted based on speedup values
-    ax.yaxis.set_minor_locator(AutoMinorLocator())
-
-# Remove inner y-axis of right subplot
-ax_test_speedup.set_ylabel("")
-ax_test_speedup.get_yaxis().set_visible(False)
-
-# Set titles
-ax_train.set_title("Training Accuracy")
-ax_test.set_title("Testing Accuracy")
-
-# Add common legend
-lines_train, labels_train = ax_train.get_legend_handles_labels()
-lines_speedup, labels_speedup = ax_train_speedup.get_legend_handles_labels()
-
-# Create a combined legend
-fig.legend(
-    lines_train + lines_speedup,
-    labels_train + labels_speedup,
-    loc="lower center",
-    bbox_to_anchor=(0.5, 0.03),
+# Combine legends from both axes
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(
+    lines1 + lines2,
+    labels1 + labels2,
+    loc="lower right",
     fancybox=True,
-    ncol=5,
+    ncol=3,
 )
 
-# Add insets for detailed view of compression factors 2.19-12.04
-inset_ax_train = plt.axes([0.22, 0.3, 0.15, 0.25])
-inset_ax_test = plt.axes([0.72, 0.3, 0.15, 0.25])
-
-# Twin axes for speedup in insets
-inset_ax_train_speedup = inset_ax_train.twinx()
-inset_ax_test_speedup = inset_ax_test.twinx()
+# Add inset for detailed view of compression factors 2.19-12.04
+inset_ax1 = plt.axes([0.1999, 0.3, 0.25, 0.25])
+inset_ax2 = inset_ax1.twinx()
 
 # Extract data for inset (first 5 compression factors)
 inset_indices = range(1, 5)  # Indices 1-4 (CF 2.19 to 12.04)
 cf_mini = [compression_factors[i] for i in inset_indices]
 speedup_mini = [speedup_values[i] for i in inset_indices]
 
-# Plot data in insets
+# Plot data in inset
 for model in MODEL_TYPES:
     display_name = "KD & IG" if model == "KD_IG" else model
     color = color_map[model]
 
-    # Plot training accuracy in left inset
-    train_acc_mini = [normalized_train_acc[model][i] for i in inset_indices]
-    inset_ax_train.plot(cf_mini, train_acc_mini, marker="o", color=color)
-
-    # Plot testing accuracy in right inset
-    test_acc_mini = [normalized_test_acc[model][i] for i in inset_indices]
-    inset_ax_test.plot(cf_mini, test_acc_mini, marker="o", color=color)
+    model_acc_mini = [normalized_acc[model][i] for i in inset_indices]
 
     if model == "KD_IG":
-        # Training inset shaded region
-        upper_bound_train = []
-        lower_bound_train = []
+        # Plot KD_IG with line and markers
+        inset_ax1.plot(cf_mini, model_acc_mini, marker="o", color=color)
 
-        for i in range(1, 5):  # CF 2.19 to 12.04
-            mean = stats[model]["train_mean"][i - 1]  # Adjust index
-            std = stats[model]["train_std"][i - 1]
-            if not np.isnan(mean) and not np.isnan(std):
-                upper = ((mean + std) / teacher_train_accuracy) * 100
-                lower = ((mean - std) / teacher_train_accuracy) * 100
-                upper_bound_train.append(upper)
-                lower_bound_train.append(lower)
-            else:
-                upper_bound_train.append(np.nan)
-                lower_bound_train.append(np.nan)
+        # Use min and max for the shaded region in inset
+        min_values = [normalized_min[model][i] for i in inset_indices]
+        max_values = [normalized_max[model][i] for i in inset_indices]
 
-        inset_ax_train.fill_between(
-            cf_mini, lower_bound_train, upper_bound_train, alpha=0.3, color=color
-        )
+        inset_ax1.fill_between(cf_mini, min_values, max_values, alpha=0.3, color=color)
+    else:
+        # Plot other models
+        inset_ax1.plot(cf_mini, model_acc_mini, marker="o", color=color)
 
-        # Testing inset shaded region
-        upper_bound_test = []
-        lower_bound_test = []
-
-        for i in range(1, 5):  # CF 2.19 to 12.04
-            mean = stats[model]["test_mean"][i - 1]  # Adjust index
-            std = stats[model]["test_std"][i - 1]
-            if not np.isnan(mean) and not np.isnan(std):
-                upper = ((mean + std) / teacher_accuracy) * 100
-                lower = ((mean - std) / teacher_accuracy) * 100
-                upper_bound_test.append(upper)
-                lower_bound_test.append(lower)
-            else:
-                upper_bound_test.append(np.nan)
-                lower_bound_test.append(np.nan)
-
-        inset_ax_test.fill_between(
-            cf_mini, lower_bound_test, upper_bound_test, alpha=0.3, color=color
-        )
-
-# Add speedup line to insets
-inset_ax_train_speedup.plot(
-    cf_mini, speedup_mini, marker="s", color="black", linestyle="--"
-)
-inset_ax_test_speedup.plot(
-    cf_mini, speedup_mini, marker="s", color="black", linestyle="--"
-)
+# Add speedup line to inset
+inset_ax2.plot(cf_mini, speedup_mini, marker="s", color="black", linestyle="--")
 
 # Configure inset axes
-for ax in [inset_ax_train, inset_ax_test]:
-    ax.grid(True)
-    ax.xaxis.set_major_formatter(ScalarFormatter())
+# inset_ax1.set_xscale("log")
+inset_ax1.grid(True)
+inset_ax1.xaxis.set_major_formatter(ScalarFormatter())
 
-# Adjust layout
-plt.tight_layout()
-plt.subplots_adjust(bottom=0.15)  # Make room for legend
-
-# Save and show the plot
-# plt.savefig("Compression_speedup_subplots.pdf")
-plt.show()
+plt.savefig("Hernandez2025_compression_vs_acc_speedup.pdf")

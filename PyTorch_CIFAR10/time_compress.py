@@ -55,7 +55,7 @@ def main():
     LAYERS = args.layers
     SIMULATIONS = args.simulations
     GAMMA = 0
-    divider = 0
+    divider = 2
 
     # Set parameters based on the provided type
     if args.type == "Student":
@@ -139,7 +139,7 @@ def main():
     teacher_attention_maps = None
     if args.type == "KD_IG_AT" and args.divider == 2:
         teacher_attention_maps = np.load("./data/cifar10_attention_maps.npy")
-    else:
+    elif args.type == "KD_IG_AT" and args.divider != 2:
         teacher_attention_maps = np.load(
             f"./data/cifar10_attention_maps_divider_{divider}.npy"
         )
@@ -230,7 +230,7 @@ def main():
         START = 0
     for i in range(START, SIMULATIONS):
         if args.type == "KD_IG_AT":
-            Student = ModifiedStudent(mobilenet_v2(pretrained=False), LAYERS)
+            Student = ModifiedStudent(mobilenet_v2(pretrained=False), LAYERS, divider)
             Student.to(device)
 
             train_time_start = time.time()
