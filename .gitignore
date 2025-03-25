@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+*.pdf
 
 PyTorch_CIFAR10/model_analysis_20250219_070703.txt
 PyTorch_CIFAR10/cifar10_attention_maps_divider_*.npy

@@ -7,7 +7,13 @@ from matplotlib.ticker import AutoMinorLocator, ScalarFormatter
 
 # Define constants
 GPU_FOLDERS = ["A5000", "3090", "3060 Ti"]
-MODEL_TYPES = ["Student", "KD", "IG", "KD_IG"]  # Reordered to make KD_IG last
+MODEL_TYPES = [
+    "Student",
+    "KD",
+    "IG",
+    "KD_IG",
+    "KD_IG_AT",
+]  # Reordered to make KD_IG last
 COMPRESSION_FACTORS = [
     "2.19",
     "4.12",
@@ -139,7 +145,13 @@ for model in MODEL_TYPES:
             normalized_max[model].append(np.nan)
 
 # Define color map
-color_map = {"Student": "blue", "KD": "orange", "KD_IG": "green", "IG": "red"}
+color_map = {
+    "Student": "#377eb8",
+    "KD": "#ff7f00",
+    "KD_IG": "#4daf4a",
+    "IG": "#e41a1c",
+    "KD_IG_AT": "#984ea3",
+}
 
 # Main figure setup
 plt.rcParams["font.family"] = "Times New Roman"
@@ -224,7 +236,7 @@ ax1.legend(
     loc="lower right",
     # bbox_to_anchor=(0.5, 0.5),
     fancybox=True,
-    ncol=3,
+    ncol=2,
 )
 
 # Add inset for detailed view of compression factors 2.19-12.04
@@ -264,6 +276,7 @@ inset_ax2.plot(cf_mini, speedup_mini, marker="s", color="black", linestyle="--")
 inset_ax1.grid(True)
 inset_ax1.xaxis.set_major_formatter(ScalarFormatter())
 
+plt.tight_layout()
 plt.savefig("Hernandez2025_compression_vs_acc_speedup.pdf")
 # plt.show()
 
