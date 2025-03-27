@@ -1,3 +1,7 @@
+import sys
+import time
+from datetime import datetime
+
 import matplotlib.pyplot as plt  # type: ignore
 import numpy as np  # type: ignore
 import pandas as pd
@@ -12,6 +16,8 @@ from torch import nn  # type: ignore
 from torch.nn import functional as F  # type: ignore
 from torchvision import datasets, transforms
 from tqdm import tqdm
+
+from cifar10_models.mobilenetv2 import mobilenet_v2
 
 
 def interpolate_images(baseline, image, alphas):
@@ -62,7 +68,7 @@ def kd_loss(logits_student, logits_teacher, temperature):
     return loss_kd
 
 
-def test_model(model, loader, device, split_name="Training"):
+def test_model(model, loader, device):
     model.eval()
     with torch.no_grad():
         correct = 0
@@ -75,9 +81,31 @@ def test_model(model, loader, device, split_name="Training"):
             total += labels.size(0)
             correct += (predicted == labels).sum().item()
 
-        print(
-            f"Accuracy of the model on the {split_name} images: {(100 * correct / total)}"
-        )
+    test_acc = 100 * correct / total
+    print(f"Accuracy of the model on the Testing images: {test_acc:.2f}")
+
+    return test_acc
+
+
+def test_model_att(model, loader, device):
+    """
+    Function to test a model with attention maps
+    """
+    model.eval()
+    total = 0
+    correct = 0
+    with torch.no_grad():
+        for images, labels in loader:
+            images, labels = images.to(device), labels.to(device)
+            logits, _ = model(images)
+            _, predicted = torch.max(logits.data, 1)
+            total += labels.size(0)
+            correct += (predicted == labels).sum().item()
+
+    test_acc = 100 * correct / total
+    print(f"Accuracy of the model on the Testing images: {test_acc:.2f}")
+
+    return test_acc
 
 
 def random_ig_overlay(image, ig, prob=0.5):
@@ -188,26 +216,6 @@ def compare_attn_maps(student_model, loader, device):
     plt.savefig("test_attn_map.pdf")
 
 
-def test_model_att(model, loader, device, split_name="Testing"):
-    """
-    Function to test a model with attention maps
-    """
-    model.eval()
-    total = 0
-    correct = 0
-    with torch.no_grad():
-        for images, labels in loader:
-            images, labels = images.to(device), labels.to(device)
-            logits, _ = model(images)
-            _, predicted = torch.max(logits.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
-
-    print(
-        f"Accuracy of the model on the {split_name} images: {100 * correct / total} %"
-    )
-
-
 def random_logarithmic_scale(ig, scale_min=1, scale_max=10):
     """Apply a random logarithmic scaling to the IG tensor."""
     scale_factor = np.exp(np.random.uniform(np.log(scale_min), np.log(scale_max)))
@@ -233,9 +241,11 @@ def denorm(x, maximum, minimum):
 
 # Classes
 class SmallerMobileNet(nn.Module):
-    def __init__(self, original_model):
+    def __init__(self, original_model, layer=5):
         super(SmallerMobileNet, self).__init__()
-        self.features = nn.Sequential(*list(original_model.features.children())[:-5])
+        self.features = nn.Sequential(
+            *list(original_model.features.children())[:-layer]
+        )
 
         # Dynamically find the output channels of the last convolutional block used
         # Iterate backwards over the blocks to find the last convolutional layer
@@ -315,10 +325,10 @@ class CIFAR10WithIG(datasets.CIFAR10):
 
 
 class ModifiedTeacher(nn.Module):
-    def __init__(self, original_model):
+    def __init__(self, original_model, divider=2):
         super(ModifiedTeacher, self).__init__()
         # Divide the model into two parts around the middle layer
-        middle_index = len(original_model.features) // 2
+        middle_index = len(original_model.features) // divider
         self.front_layers = nn.Sequential(*original_model.features[:middle_index])
         self.middle_layer = original_model.features[middle_index]
         self.end_layers = nn.Sequential(*original_model.features[middle_index + 1 :])
@@ -335,13 +345,13 @@ class ModifiedTeacher(nn.Module):
 
 
 class ModifiedStudent(nn.Module):
-    def __init__(self, original_model):
+    def __init__(self, original_model, layer=5, divider=2):
         super(ModifiedStudent, self).__init__()
-        middle_index = len(original_model.features) // 2
+        middle_index = len(original_model.features) // divider
         self.front_layers = nn.Sequential(*original_model.features[:middle_index])
         self.middle_layer = original_model.features[middle_index]
         self.end_layers = nn.Sequential(
-            *list(original_model.features.children())[middle_index + 1 : -5]
+            *list(original_model.features.children())[middle_index + 1 : -layer]
         )
 
         # Dynamically find the output channels of the last convolutional block used
@@ -388,7 +398,7 @@ def train_eval_kd(
     TEMP=2.0,
     ALPHA=0.5,
     device=torch.device("cuda" if torch.cuda.is_available() else "cpu"),
-    csv_path="Histories/KD_param/KD.csv",
+    csv_path="Compression_accuracy_time_test/test1.csv",
 ):
 
     # Loss and optimizer
@@ -398,6 +408,8 @@ def train_eval_kd(
     # Store the metrics
     metrics = []
     for epoch in range(epochs):
+
+        epoch_start_time = time.time()
         student.train()
         total_train_loss = 0.0
         correct_train = 0
@@ -443,40 +455,39 @@ def train_eval_kd(
         epoch_loss = total_train_loss / total_train
         epoch_acc = 100 * correct_train / total_train
 
+        epoch_time = time.time() - epoch_start_time
+
+        inference_start_time = time.time()
+        test_acc = test_model(student, test_loader, device)
+        inference_time = time.time() - inference_start_time
+
         # Append metrics for the current epoch to the list
         metrics.append(
             {
                 "Epoch": epoch + 1,
                 "Training Loss": epoch_loss,
                 "Training Accuracy": epoch_acc,
+                "Testing Accuracy": test_acc,
+                "Epoch Time (s)": epoch_time,
+                "Inference Time (s)": inference_time,
             }
         )
 
         train_loader_tqdm.close()
         print(
-            f"Epoch {epoch+1}/{epochs}: Loss: {epoch_loss:.4f},\
-            Accuracy: {epoch_acc:.2f}%"
+            f"Epoch {epoch+1}/{epochs}: Loss: {epoch_loss:.4f}, "
+            f"Accuracy: {epoch_acc:.2f}%, "
+            f"Epoch Time: {epoch_time:.2f}s, "
+            f"Inference Time: {inference_time:.2f}s"
         )
 
     metrics_df = pd.DataFrame(metrics)
 
     metrics_df.to_csv(csv_path, index=False)
 
-    # Test the model
-    student.eval()
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            outputs = student(images)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+    test_acc = test_model(student, test_loader, device)
 
-    test_acc = 100 * correct / total
-
-    return student, test_acc
+    return student, test_acc, metrics_df
 
 
 def train_eval_AT(
@@ -499,6 +510,8 @@ def train_eval_AT(
     # Store the metrics
     metrics = []
     for epoch in range(epochs):
+
+        epoch_start_time = time.time()
         student.train()
         total_train_loss = 0.0
         correct_train = 0
@@ -526,8 +539,6 @@ def train_eval_AT(
                 temperature=TEMP,
             )
 
-            # teacher_attn = teacher_attn.view(-1, 8, 8)
-            # student_attn = student_attn.view(-1, 8, 8)
             attn_loss = attention_loss(teacher_attn, student_attn)
 
             student_loss = criterion(student_logits, labels)
@@ -554,40 +565,39 @@ def train_eval_AT(
         epoch_loss = total_train_loss / total_train
         epoch_acc = 100 * correct_train / total_train
 
+        epoch_time = time.time() - epoch_start_time
+
+        inference_start_time = time.time()
+        test_acc = test_model_att(student, test_loader, device)
+        inference_time = time.time() - inference_start_time
+
         # Append metrics for the current epoch to the list
         metrics.append(
             {
                 "Epoch": epoch + 1,
                 "Training Loss": epoch_loss,
                 "Training Accuracy": epoch_acc,
+                "Testing Accuracy": test_acc,
+                "Epoch Time (s)": epoch_time,
+                "Inference Time (s)": inference_time,
             }
         )
 
         train_loader_tqdm.close()
         print(
-            f"Epoch {epoch+1}/{epochs}: Loss: {epoch_loss:.4f},\
-            Accuracy: {epoch_acc:.2f}%"
+            f"Epoch {epoch+1}/{epochs}: Loss: {epoch_loss:.4f}, "
+            f"Accuracy: {epoch_acc:.2f}%, "
+            f"Epoch Time: {epoch_time:.2f}s, "
+            f"Inference Time: {inference_time:.2f}s"
         )
 
     metrics_df = pd.DataFrame(metrics)
 
     metrics_df.to_csv(csv_path, index=False)
 
-    # Test the model
-    student.eval()
-    correct = 0
-    total = 0
-    with torch.no_grad():
-        for images, labels in test_loader:
-            images, labels = images.to(device), labels.to(device)
-            outputs, _ = student(images)
-            _, predicted = torch.max(outputs.data, 1)
-            total += labels.size(0)
-            correct += (predicted == labels).sum().item()
+    test_acc = test_model_att(student, test_loader, device)
 
-    test_acc = 100 * correct / total
-
-    return student, test_acc
+    return student, test_acc, metrics_df
 
 
 class CIFAR10_KD(datasets.CIFAR10):
@@ -814,3 +824,144 @@ def train_eval(
     print(f"Test Accuracy: {test_acc:.2f}%")
 
     return model, test_acc
+
+
+# Function to extract final accuracy from CSV
+def extract_final_accuracy(filepath):
+    try:
+        df = pd.read_csv(filepath)
+        if "Training Accuracy" in df.columns and "Testing Accuracy" in df.columns:
+            # Get the last row's training and testing accuracy
+            last_row = df.iloc[-1]
+            return last_row["Training Accuracy"], last_row["Testing Accuracy"]
+        else:
+            print(f"Warning: Columns not found in {filepath}")
+            return None, None
+    except Exception as e:
+        print(f"Error reading {filepath}: {e}")
+        return None, None
+
+
+class OutputLogger:
+    def __init__(self, filename):
+        self.terminal = sys.stdout
+        self.log = open(filename, "w")
+
+    def write(self, message):
+        self.terminal.write(message)
+        self.log.write(message)
+
+    def flush(self):
+        self.terminal.flush()
+        self.log.flush()
+
+
+def analyze_layer_structure(model):
+    """Analyze and print detailed layer structure of the model."""
+    print("\nLayer Structure Analysis:")
+    total_layers = 0
+    conv_layers = 0
+    for name, module in model.named_modules():
+        if isinstance(module, nn.Conv2d):
+            conv_layers += 1
+            print(f"Conv2d Layer {conv_layers}:")
+            print(f"  - Input channels: {module.in_channels}")
+            print(f"  - Output channels: {module.out_channels}")
+            print(f"  - Kernel size: {module.kernel_size}")
+            print(f"  - Stride: {module.stride}")
+            total_layers += 1
+        elif isinstance(module, nn.Linear):
+            print("Linear Layer:")
+            print(f"  - Input features: {module.in_features}")
+            print(f"  - Output features: {module.out_features}")
+            total_layers += 1
+    return total_layers, conv_layers
+
+
+def analyze_models(
+    device=torch.device("mps" if torch.backends.mps.is_available() else "cpu"),
+):
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = f"model_analysis_{timestamp}.txt"
+    sys.stdout = OutputLogger(log_file)
+
+    print(f"Analysis started at: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Device being used: {device}")
+
+    # Prepare a dummy input tensor (CIFAR-10: [batch, channels, height, width])
+    dummy_input = torch.randn(1, 3, 32, 32).to(device)
+
+    # Analyze teacher model
+    teacher = mobilenet_v2(pretrained=True)
+    teacher.to(device)
+    teacher.eval()  # set model to evaluation mode
+    teacher_params = count_parameters(teacher)
+    print("\n=== TEACHER MODEL ANALYSIS ===")
+    print(f"Total parameters: {teacher_params:,}")
+
+    # Measure inference time for the teacher model
+    with torch.no_grad():
+        start_time = time.perf_counter()
+        _ = teacher(dummy_input)
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        teacher_inference_time = time.perf_counter() - start_time
+    print(f"Inference Time for Teacher Model: {teacher_inference_time:.6f} seconds")
+
+    teacher_total_layers, teacher_conv_layers = analyze_layer_structure(teacher)
+    print(f"Total layers: {teacher_total_layers}")
+    print(f"Convolutional layers: {teacher_conv_layers}")
+
+    # Layers to remove for different compression levels
+    layers_config = [3, 5, 7, 9, 11, 13, 15, 17]
+
+    print("\n=== STUDENT MODELS ANALYSIS ===")
+    print("\nSummary Table:")
+    print("-" * 100)
+    # Adding teacher model as the first row (0 layers removed, factor 1x)
+    print(
+        f"{'Removed Layers':<15} {'Total Params':<15} {'Compression Factor':<20} {'Total Layers':<15} {'Conv Layers':<15} {'Inference Time (s)'}"
+    )
+    print("-" * 100)
+    print(
+        f"{0:<15} {teacher_params:<15,} {1.00:<20.2f} {teacher_total_layers:<15} {teacher_conv_layers:<15} {teacher_inference_time:.6f}"
+    )
+
+    # Process each student model with layers removed
+    for removed_layers in layers_config:
+        student = SmallerMobileNet(mobilenet_v2(pretrained=False), removed_layers)
+        student.to(device)
+        student_params = count_parameters(student)
+        compression_factor = teacher_params / student_params
+
+        student.eval()
+        with torch.no_grad():
+            start_time = time.perf_counter()
+            _ = student(dummy_input)
+            if device.type == "cuda":
+                torch.cuda.synchronize()
+            student_inference_time = time.perf_counter() - start_time
+
+        print(f"\nStudent Model (Removed {removed_layers} layers):")
+        print(f"Total parameters: {student_params:,}")
+        print(f"Compression factor: {compression_factor:.2f}x")
+        print(f"Inference Time: {student_inference_time:.6f} seconds")
+        total_layers, conv_layers = analyze_layer_structure(student)
+        print(f"Total layers: {total_layers}")
+        print(f"Convolutional layers: {conv_layers}")
+
+        # Add to summary table
+        print(
+            f"{removed_layers:<15} {student_params:<15,} {compression_factor:<20.2f} {total_layers:<15} {conv_layers:<15} {student_inference_time:.6f}"
+        )
+
+        del student
+        # Clear CUDA cache if using CUDA (not needed for MPS)
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
+
+    print("\nAnalysis completed at:", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    print(f"\nResults saved to: {log_file}")
+
+    # Reset stdout
+    sys.stdout = sys.stdout.terminal

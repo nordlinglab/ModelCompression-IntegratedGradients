@@ -5,6 +5,8 @@ import numpy as np
 import pandas as pd
 from matplotlib.ticker import AutoMinorLocator, ScalarFormatter
 
+from UTILS_TORCH import extract_final_accuracy
+
 # Define constants
 GPU_FOLDERS = ["A5000", "3090", "3060 Ti"]
 MODEL_TYPES = [
@@ -31,22 +33,6 @@ results = {
     model: {cf: {"train": [], "test": []} for cf in COMPRESSION_FACTORS}
     for model in MODEL_TYPES
 }
-
-
-# Function to extract final accuracy from CSV
-def extract_final_accuracy(filepath):
-    try:
-        df = pd.read_csv(filepath)
-        if "Training Accuracy" in df.columns and "Testing Accuracy" in df.columns:
-            # Get the last row's training and testing accuracy
-            last_row = df.iloc[-1]
-            return last_row["Training Accuracy"], last_row["Testing Accuracy"]
-        else:
-            print(f"Warning: Columns not found in {filepath}")
-            return None, None
-    except Exception as e:
-        print(f"Error reading {filepath}: {e}")
-        return None, None
 
 
 # Process files for each model type and compression factor
