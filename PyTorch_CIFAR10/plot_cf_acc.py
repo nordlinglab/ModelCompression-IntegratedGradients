@@ -141,7 +141,7 @@ color_map = {
 
 # Main figure setup
 plt.rcParams["font.family"] = "Times New Roman"
-plt.rcParams["font.size"] = 36
+plt.rcParams["font.size"] = 34
 plt.rcParams["lines.linewidth"] = 2
 
 # Create figure with two y-axes
@@ -156,6 +156,7 @@ ax1.scatter(
 # Plotting on left y-axis (Accuracy)
 for model in MODEL_TYPES:
     display_name = "KD & IG" if model == "KD_IG" else model
+    display_name = "KD & IG & AT" if model == "KD_IG_AT" else model
     color = color_map[model]
 
     if model == "KD_IG":
@@ -226,7 +227,7 @@ ax1.legend(
 )
 
 # Add inset for detailed view of compression factors 2.19-12.04
-inset_ax1 = plt.axes([0.1999, 0.3, 0.25, 0.25])
+inset_ax1 = plt.axes([0.1756, 0.3, 0.25, 0.25])
 inset_ax2 = inset_ax1.twinx()
 
 # Extract data for inset (first 5 compression factors)
@@ -237,6 +238,7 @@ speedup_mini = [speedup_values[i] for i in inset_indices]
 # Plot data in inset
 for model in MODEL_TYPES:
     display_name = "KD & IG" if model == "KD_IG" else model
+    display_name = "KD & IG & AT" if model == "KD_IG_AT" else model
     color = color_map[model]
 
     model_acc_mini = [normalized_acc[model][i] for i in inset_indices]
@@ -263,13 +265,14 @@ inset_ax1.grid(True)
 inset_ax1.xaxis.set_major_formatter(ScalarFormatter())
 
 plt.tight_layout()
-plt.savefig("Hernandez2025_compression_vs_acc_speedup.pdf")
+plt.savefig("Fig5.pdf", )
 # plt.show()
 
 # Print summary statistics
 print("\nSummary Statistics:")
 for model in MODEL_TYPES:
     display_name = "KD & IG" if model == "KD_IG" else model
+    display_name = "KD & IG & AT" if model == "KD_IG_AT" else model
     print(f"\n{display_name} Model:")
     for i, cf in enumerate(COMPRESSION_FACTORS):
         print(f"  CF={cf}:")
