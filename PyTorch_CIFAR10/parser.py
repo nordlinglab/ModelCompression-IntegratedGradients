@@ -71,13 +71,14 @@ def parse_args():
     parser.add_argument(
         "--type",
         type=str,
-        required=True,
+        required=False,
+        default="Student",
         choices=["Student", "KD", "KD_IG", "IG", "KD_IG_AT", "AT", "KD_AT", "IG_AT"],
         help="Type of configuration. Options: Student, KD, KD_IG, IG, KD_IG_AT, AT, KD_AT, IG_AT",
     )
     # Remove the choices from the divider argument since we'll set it automatically
     parser.add_argument(
-        "--num_workers", type=int, required=False, help="Number of workers."
+        "--num_workers", type=int, required=False, default=1, help="Number of workers."
     )
     parser.add_argument(
         "--batch_size",
