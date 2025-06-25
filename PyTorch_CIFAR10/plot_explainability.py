@@ -154,12 +154,16 @@ else:
     print("Need to compute first!")
 
 # Define colormaps to test
-colormaps = ["viridis", "hot", "inferno", "cividis", "magma"]
+# colormaps = ["viridis", "hot", "inferno", "cividis", "magma"]
+colormaps = ["viridis"]
 
 # Generate figures for each colormap
 for cmap in colormaps:
-    # Create figure
-    fig, axes = plt.subplots(1, 6, figsize=(30, 6))
+    # Create figure with adjusted size and spacing for single colorbar
+    fig, axes = plt.subplots(1, 6, figsize=(35, 6))
+
+    # Adjust spacing between subplots to make room for single colorbar
+    plt.subplots_adjust(wspace=0.1, right=1.0)
 
     # Plot original image
     axes[0].imshow(original_image)
@@ -175,12 +179,20 @@ for cmap in colormaps:
         (shap_attr, "(f) SHAP"),
     ]
 
+    # Store the last image for colorbar reference
+    im = None
     for i, (attr, title) in enumerate(attributions):
-        axes[i + 1].imshow(attr, cmap=cmap)
+        # Create the image plot
+        im = axes[i + 1].imshow(attr, cmap=cmap, vmin=0, vmax=1)
         axes[i + 1].set_title(title)
         axes[i + 1].axis("off")
 
-    plt.tight_layout()
+    # Add single colorbar on the right side
+    cbar = fig.colorbar(im, ax=axes, shrink=0.9, aspect=10, pad=0.01)
+    cbar.set_label("Attribution Strength", rotation=270, labelpad=40, fontsize=36)
+    cbar.ax.tick_params(labelsize=20)
+
+    # plt.tight_layout()
     plt.savefig(f"Hernandez2025_attribution_comparison_{cmap}.pdf")
     plt.close()
 
